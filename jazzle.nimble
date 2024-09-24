@@ -11,5 +11,4 @@ backend       = "c"
 # Dependencies
 
 requires "nim >= 1.0.0"
-requires "nimgl >= 1.3.2"
-requires "imgui >= 1.91.1"
+requires "naylib >= 5.1.6"

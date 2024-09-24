@@ -1,8 +1,27 @@
-import std/os, std/compilesettings
-import imgui/helpers
 
-const backend = querySetting(SingleValueSetting.backend)
-
-when backend != "cpp" or defined(cimguiDLL):
-  echo "copying " & imgui_dll & " to " & getCurrentDir()
-  cpFile(imgui_dll_path / imgui_dll, getCurrentDir() / imgui_dll)
+when defined(emscripten):
+  --define:GraphicsApiOpenGlEs2
+  # --define:NaylibWebResources
+  # switch("define", "NaylibWebResourcesPath=assets")
+  # switch("define", "NaylibWebPthreadPoolSize=2")
+  # --define:NaylibWebAsyncify
+  --os:linux
+  --cpu:wasm32
+  --cc:clang
+  when buildOS == "windows":
+    --clang.exe:emcc.bat
+    --clang.linkerexe:emcc.bat
+    --clang.cpp.exe:emcc.bat
+    --clang.cpp.linkerexe:emcc.bat
+  else:
+    --clang.exe:emcc
+    --clang.linkerexe:emcc
+    --clang.cpp.exe:emcc
+    --clang.cpp.linkerexe:emcc
+  --mm:orc
+  --threads:on
+  --panics:on
+  --define:noSignalHandler
+  --passL:"-o build/index.html"
+  # Use raylib/src/shell.html or raylib/src/minshell.html
+  --passL:"--shell-file tests/minshell.html"
