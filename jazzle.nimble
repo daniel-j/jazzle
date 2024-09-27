@@ -12,3 +12,5 @@ backend       = "c"
 
 requires "nim >= 1.0.0"
 requires "naylib >= 5.1.6"
+requires "zippy >= 0.10.16"
+requires "pixie >= 5.0.7"
