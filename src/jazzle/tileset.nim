@@ -13,7 +13,7 @@ type
   StreamKind = enum
     TilesetInfo
     ImageData
-    AlphaData
+    TransData
     MaskData
   StreamSize = tuple[packedSize, unpackedSize: uint32]
 
@@ -180,7 +180,7 @@ proc loadImageData(self: var Tileset, si: Stream, sa: Stream, sm: Stream) =
   im.writeFile("uniquetiles.png")
 
 
-proc debug(self: Tileset, filename: string = "tileset.png") =
+proc debug*(self: Tileset, filename: string = "tileset.png") =
   var im = newImage(320 * 6, ((self.maxTiles.int + 9) div 10) * 32)
 
   for i in 1..<self.maxTiles.int:
@@ -241,8 +241,8 @@ proc debug(self: Tileset, filename: string = "tileset.png") =
 
   im.writeFile(filename)
 
-proc test(filename: string) =
-  var tileset = Tileset()
+proc load*(tileset: var Tileset; filename: string) =
+  tileset.reset()
   let s = newFileStream(filename)
   defer: s.close()
 
@@ -252,9 +252,9 @@ proc test(filename: string) =
   doAssert magic == "TILE"
   let signature = s.readUint32()
   doAssert signature == 0xAFBEADDE'u32
-  tileset.title = s.readStr(32).strip(leading=false)
+  tileset.title = s.readStr(32).strip(leading=false, chars={'\0'})
   let versionNum = s.readUint16()
-  tileset.version = if versionNum <= 0x200: v1_23 else: v1_24
+  tileset.version = if versionNum <= v1_23.ord: v1_23 else: v1_24
   tileset.fileSize = s.readUint32()
   tileset.checksum = s.readUint32()
 
@@ -270,8 +270,11 @@ proc test(filename: string) =
   s.close()
 
   tileset.loadInfo(sections[TilesetInfo])
-  tileset.loadImageData(sections[ImageData], sections[AlphaData], sections[MaskData])
+  tileset.loadImageData(sections[ImageData], sections[TransData], sections[MaskData])
 
+proc test*(filename: string) =
+  var tileset = Tileset()
+  tileset.load(filename)
   tileset.debug("tileset.png")
 
-test("TubeNite.j2t")
+# test("TubeNite.j2t")
