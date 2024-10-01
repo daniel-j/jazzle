@@ -3,7 +3,6 @@ import std/strutils
 import std/tables
 import std/bitops
 import std/sets
-import std/endians
 import pixie
 import zippy
 import zippy/crc

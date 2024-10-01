@@ -180,7 +180,9 @@ proc loadImageData(self: var Tileset, si: Stream, sa: Stream, sm: Stream) =
   im.writeFile("uniquetiles.png")
 
 
-proc debug*(self: Tileset, filename: string = "tileset.png") =
+proc debug*(self: Tileset) =
+  echo "drawing tileset buffers"
+
   var im = newImage(320 * 6, ((self.maxTiles.int + 9) div 10) * 32)
 
   for i in 1..<self.maxTiles.int:
@@ -239,7 +241,8 @@ proc debug*(self: Tileset, filename: string = "tileset.png") =
           b: flipped
         )
 
-  im.writeFile(filename)
+  echo "saving"
+  im.writeFile("tileset.png")
 
 proc load*(tileset: var Tileset; filename: string) =
   tileset.reset()
@@ -275,6 +278,4 @@ proc load*(tileset: var Tileset; filename: string) =
 proc test*(filename: string) =
   var tileset = Tileset()
   tileset.load(filename)
-  tileset.debug("tileset.png")
-
-# test("TubeNite.j2t")
+  tileset.debug()
