@@ -52,12 +52,12 @@ type
   Tile* {.packed.} = object # 1.24
     tileId* {.bitsize: 12.}: uint16
     flipped* {.bitsize: 1.}: bool
-    #unknown* {.bitsize: 3.}: uint8
+    _ {.bitsize: 3.}: uint8 # unused
 
   TileOld* {.packed.} = object # 1.23
     tileId* {.bitsize: 10.}: uint16
     flipped* {.bitsize: 1.}: bool
-    #unknown* {.bitsize: 5.}: uint8
+    _ {.bitsize: 5.}: uint8 # unused
 
   WordTiles* = array[4, Tile]
 
@@ -87,7 +87,7 @@ type
     limitVisibleRegion* {.bitsize: 1.}: bool
     tileHeight* {.bitsize: 1.}: bool
     tileWidth* {.bitsize: 1.}: bool
-    padding* {.bitsize: 27}: uint32
+    _ {.bitsize: 27}: uint32 # unused
 
   Layer* = object
     properties*: LayerProperties
