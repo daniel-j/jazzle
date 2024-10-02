@@ -2,6 +2,7 @@ import std/streams
 import std/strutils
 import pixie
 import zippy
+import ./data
 
 type
 
@@ -28,15 +29,15 @@ proc readCStr(s: Stream, length: int): string =
   let pos = result.find('\0')
   if pos != -1: result.setLen(pos)
 
-proc debug*(self: Episode) =
+proc debug*(self: Episode; palette: string) =
   var im1 = newImage(self.width.int, self.height.int)
   for y in 0..<self.height.int:
     for x in 0..<self.width.int:
       let index = self.imageData[EpisodeData1][y * self.width.int + x].uint8
       im1[x, y] = ColorRGB(
-        r: index,
-        g: index,
-        b: index
+        r: palette[index.int * 4 + 0].uint8,
+        g: palette[index.int * 4 + 1].uint8,
+        b: palette[index.int * 4 + 2].uint8
       )
 
   im1.writeFile("episode1.png")
@@ -47,15 +48,15 @@ proc debug*(self: Episode) =
     for x in 0..<self.widthTitle.int:
       let index2 = self.imageData[EpisodeData2][y * self.widthTitle.int + x].uint8
       im2[x, y] = ColorRGB(
-        r: index2,
-        g: index2,
-        b: index2
+        r: palette[index2.int * 4 + 0].uint8,
+        g: palette[index2.int * 4 + 1].uint8,
+        b: palette[index2.int * 4 + 2].uint8
       )
       let index3 = self.imageData[EpisodeData3][y * self.widthTitle.int + x].uint8
       im3[x, y] = ColorRGB(
-        r: index3,
-        g: index3,
-        b: index3
+        r: palette[index3.int * 4 + 0].uint8,
+        g: palette[index3.int * 4 + 1].uint8,
+        b: palette[index3.int * 4 + 2].uint8
       )
 
   im2.writeFile("episode2.png")
@@ -105,6 +106,8 @@ proc load*(self: var Episode; filename: string; password: string = ""): bool =
 
 proc test*(filename: string) =
 
-  var episode = Episode()
-  if episode.load(filename):
-    episode.debug()
+  var data = Data()
+  if data.load("Data.j2d"):
+    var episode = Episode()
+    if episode.load(filename):
+      episode.debug(data.streams["Menu.Palette"].data)

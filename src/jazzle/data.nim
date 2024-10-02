@@ -1,20 +1,28 @@
 import std/streams
 import std/strutils
+import std/sequtils
+import std/tables
 import pixie
 import zippy
+import zippy/crc
+
+export tables
+
+const DataSignature = 0xBEBAADDE'u32
 
 type
-
-  StreamInfo = object
-    packedSize, unpackedSize: uint32
-    name: string
-    offset: uint32
-    unknown: string
+  StreamInfo* = object
+    name*: string
+    offset*: uint32
+    checksum*: uint32
+    packedSize*, unpackedSize: uint32
+    data*: string
 
   Data* = object
     version*: uint32
-    streamInfo*: seq[StreamInfo]
-    streamData*: seq[string]
+    fileSize*: uint32
+    checksum*: uint32
+    streams*: OrderedTable[string, StreamInfo]
 
 proc readCStr(s: Stream, length: int): string =
   result = s.readStr(length)
@@ -22,32 +30,26 @@ proc readCStr(s: Stream, length: int): string =
   if pos != -1: result.setLen(pos)
 
 proc loadInfo(self: var Data; s: Stream) =
-  self.streamInfo.setLen(0)
+  self.streams.clear()
   while not s.atEnd():
     var info = StreamInfo()
-    info.name = s.readCStr(36)
-    info.offset = s.readUint32()
-    info.unknown = s.readStr(4).toHex()
-    info.packedSize = s.readUint32()
-    info.unpackedSize = s.readUint32()
-    self.streamInfo.add(info)
+    info.name = s.readCStr(36) # why not 32? not sure
+    s.read(info.offset)
+    s.read(info.checksum)
+    s.read(info.packedSize)
+    s.read(info.unpackedSize)
+    self.streams[info.name] = info
 
   doAssert s.atEnd()
   s.close()
 
 proc debug*(self: Data) =
 
-  #[var im2 = newImage(self.widthTitle.int, self.heightTitle.int)
-  for y in 0..<self.heightTitle.int:
-    for x in 0..<self.widthTitle.int:
-      #let index2 = self.imageData[EpisodeData2][y * self.widthTitle.int + x].uint8
-      #im2[x, y] = ColorRGB(
-      #  r: index2,
-      #  g: index2,
-      #  b: index2
-      #)
-  im2.writeFile("episode2.png")]#
-  discard
+  echo "Data streams: ", self.streams.keys.toSeq()
+
+  # TODO: Export decoded assets
+  for info in self.streams.values:
+    writeFile("data." & info.name & ".bin", info.data)
 
 proc load*(self: var Data; filename: string): bool =
   self.reset()
@@ -55,28 +57,33 @@ proc load*(self: var Data; filename: string): bool =
   defer: s.close()
 
   doAssert s.readStr(4) == "PLIB"
-  doAssert s.readUint32() == 0xBEBAADDE'u32
-  self.version = s.readUint32()
+  doAssert s.readUint32() == DataSignature
+  s.read(self.version)
 
-  let fileSize = s.readUint32()
-  let checksum = s.readUint32()
-
-  echo self
+  s.read(self.fileSize)
+  s.read(self.checksum)
 
   let infoPackedSize = s.readUint32()
   let infoUnpackedSize = s.readUint32()
+
+  let pos = s.getPosition()
+  let checksumCheck = crc32(s.readAll())
+  doAssert self.fileSize == s.getPosition().uint32
+  s.setPosition(pos)
+
+  doAssert self.checksum == checksumCheck
+
   let data = uncompress(s.readStr(infoPackedSize.int), dfZlib)
   doAssert infoUnpackedSize == data.len.uint32
-  #writeFile("data.info.bin", data)
+
   self.loadInfo(newStringStream(data)) # needed to get the other offsets
 
-  self.streamData.setLen(self.streamInfo.len)
-
-  for i, info in self.streamInfo:
-    echo "loading ", info
-    self.streamData[i] = uncompress(s.readStr(info.packedSize.int), dfZlib)
-    doAssert info.unpackedSize == self.streamData[i].len.uint32
-    writeFile("data." & info.name & ".bin", self.streamData[i])
+  for name, info in self.streams.mpairs:
+    # echo "loading ", name
+    info.data = uncompress(s.readStr(info.packedSize.int), dfZlib)
+    doAssert info.unpackedSize == info.data.len.uint32
+    doAssert info.checksum == crc32(info.data)
+    writeFile("data." & name & ".bin", info.data)
 
   doAssert s.atEnd()
   s.close()
@@ -85,7 +92,6 @@ proc load*(self: var Data; filename: string): bool =
 
 
 proc test*(filename: string) =
-
   var data = Data()
   if data.load(filename):
     data.debug()
