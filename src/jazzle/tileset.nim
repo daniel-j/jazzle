@@ -3,12 +3,11 @@ import std/strutils
 import std/bitops
 import pixie
 import zippy
+import ./common
+
+export common
 
 type
-
-  TilesetVersion* {.size: sizeof(uint16).} = enum
-    v1_23 = 0x200
-    v1_24 = 0x201
 
   StreamKind = enum
     TilesetInfo
@@ -30,7 +29,7 @@ type
 
   Tileset* = object
     title*: string
-    version*: TilesetVersion
+    version*: GameVersion
     fileSize*: uint32
     checksum*: uint32
     streamSizes*: array[StreamKind, StreamSize]
@@ -257,7 +256,7 @@ proc load*(tileset: var Tileset; filename: string) =
   doAssert signature == 0xAFBEADDE'u32
   tileset.title = s.readStr(32).strip(leading=false, chars={'\0'})
   let versionNum = s.readUint16()
-  tileset.version = if versionNum <= v1_23.ord: v1_23 else: v1_24
+  tileset.version = if versionNum <= 0x200: v1_23 else: v1_24
   tileset.fileSize = s.readUint32()
   tileset.checksum = s.readUint32()
 

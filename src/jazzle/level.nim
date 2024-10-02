@@ -7,6 +7,10 @@ import pixie
 import zippy
 import zippy/crc
 import parseini
+import ./common
+import ./tileset
+
+export common, tables
 
 const SecurityStringPassworded = 0xBA00BE00'u32
 const SecurityStringMLLE = 0xBACABEEF'u32
@@ -15,12 +19,6 @@ const SecurityNoPassword = 0x00BABE'u32
 const LayerCount* = 8
 
 type
-
-  GameVersion* = enum
-    v_AGA
-    v1_23
-    v1_24
-
   StreamKind = enum
     LevelInfo
     EventData
@@ -323,7 +321,6 @@ proc loadJcsIni(filename: string) =
   for i in 0..<jcsEvents.len:
     jcsEvents[i] = parseIniEvent(jcsini.getSectionValue("Events", $i))
 
-
 proc parseEventParams*(event: Event): seq[int] =
   let jcsEvent = jcsEvents[event.eventId.int]
   var offset = 0
@@ -336,8 +333,6 @@ proc parseEventParams*(event: Event): seq[int] =
     if signed and result[i].testBit(size - 1):
       result[i] =  result[i] - shift
     offset += size
-
-import ./tileset
 
 proc debug*(self: Level) =
 
