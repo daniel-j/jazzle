@@ -105,6 +105,6 @@ proc load*(self: var Episode; filename: string; password: string = ""): bool =
 
 proc test*(filename: string) =
 
-  var Episode = Episode()
-  if Episode.load(filename):
-    Episode.debug()
+  var episode = Episode()
+  if episode.load(filename):
+    episode.debug()
