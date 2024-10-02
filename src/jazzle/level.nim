@@ -178,7 +178,9 @@ proc maxAnimTiles*(self: Level): uint16 =
 
 
 proc readCStr(s: Stream, length: int): string =
-  return s.readStr(length).strip(leading=false, chars={'\0'})
+  result = s.readStr(length)
+  let pos = result.find('\0')
+  if pos != -1: result.setLen(pos)
 
 proc loadInfo(self: var Level, s: Stream) =
   # data1
