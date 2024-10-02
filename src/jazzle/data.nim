@@ -43,14 +43,6 @@ proc loadInfo(self: var Data; s: Stream) =
   doAssert s.atEnd()
   s.close()
 
-proc debug*(self: Data) =
-
-  echo "Data streams: ", self.streams.keys.toSeq()
-
-  # TODO: Export decoded assets
-  for info in self.streams.values:
-    writeFile("data." & info.name & ".bin", info.data)
-
 proc load*(self: var Data; filename: string): bool =
   self.reset()
   let s = newFileStream(filename)
@@ -90,6 +82,13 @@ proc load*(self: var Data; filename: string): bool =
 
   return true
 
+proc debug*(self: Data) =
+
+  echo "Data streams: ", self.streams.keys.toSeq()
+
+  # TODO: Export decoded assets
+  for info in self.streams.values:
+    writeFile("data." & info.name & ".bin", info.data)
 
 proc test*(filename: string) =
   var data = Data()

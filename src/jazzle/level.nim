@@ -334,6 +334,71 @@ proc parseEventParams*(event: Event): seq[int] =
       result[i] =  result[i] - shift
     offset += size
 
+
+proc load*(self: var Level; filename: string; password: string = ""): bool =
+  self.reset()
+  let s = newFileStream(filename)
+  defer: s.close()
+
+  let copyright = s.readStr(180)
+  discard copyright
+  let magic = s.readStr(4)
+  doAssert magic == "LEVL"
+  self.passwordHash = (s.readUint8().uint32 shl 16) or (s.readUint8().uint32 shl 8) or s.readUint8().uint32
+  # doAssert s.readData(self.passwordHash.addr, 3) == 3
+  # bigEndian32(self.passwordHash.addr, self.passwordHash.addr)
+
+  if self.passwordHash != SecurityNoPassword:
+    var hash = crc32(password) and 0xffffff
+    if self.passwordHash != hash:
+      echo "invalid password"
+      echo (self.passwordHash.toHex(), hash.toHex())
+      return false
+
+  s.read(self.hideInHomecooked)
+
+  self.title = s.readCStr(32)
+  let versionNum = s.readUint16()
+  self.version = if versionNum == 0x100: v_AGA elif versionNum <= 0x202: v1_23 else: v1_24
+  self.fileSize = s.readUint32()
+  self.checksum = s.readUint32()
+  var compressedLength: uint32 = 0
+  for kind in StreamKind.items:
+    self.streamSizes[kind].packedSize = s.readUint32()
+    self.streamSizes[kind].unpackedSize = s.readUint32()
+    compressedLength += self.streamSizes[kind].packedSize
+
+  let compressedData = newStringStream(s.readStr(compressedLength.int))
+  defer: compressedData.close()
+
+  let checksum = crc32(compressedData.data)
+
+  if checksum != self.checksum:
+    echo "checksums doesn't match!"
+    return false
+
+  var sections: array[StreamKind, Stream]
+  for kind in StreamKind.items:
+    var data = compressedData.readStr(self.streamSizes[kind].packedSize.int)
+    data = uncompress(data, dfZlib)
+    doAssert data.len.uint32 == self.streamSizes[kind].unpackedSize
+    sections[kind] = newStringStream(data)
+
+  doAssert compressedData.atEnd()
+  compressedData.close()
+
+  # TODO: Parse MLLE data here
+  # doAssert s.atEnd()
+  s.close()
+
+  self.loadInfo(sections[LevelInfo])
+  self.loadEvents(sections[EventData])
+  self.loadDictionary(sections[DictData])
+  self.loadWordMap(sections[WordMapData])
+
+  return true
+
+
 proc debug*(self: Level) =
 
   var ef = open("events.txt", fmWrite)
@@ -438,70 +503,6 @@ proc debug*(self: Level) =
           )
     echo "saving"
     im2.writeFile("layer-" & $i & ".png")
-
-
-proc load*(self: var Level; filename: string; password: string = ""): bool =
-  self.reset()
-  let s = newFileStream(filename)
-  defer: s.close()
-
-  let copyright = s.readStr(180)
-  discard copyright
-  let magic = s.readStr(4)
-  doAssert magic == "LEVL"
-  self.passwordHash = (s.readUint8().uint32 shl 16) or (s.readUint8().uint32 shl 8) or s.readUint8().uint32
-  # doAssert s.readData(self.passwordHash.addr, 3) == 3
-  # bigEndian32(self.passwordHash.addr, self.passwordHash.addr)
-
-  if self.passwordHash != SecurityNoPassword:
-    var hash = crc32(password) and 0xffffff
-    if self.passwordHash != hash:
-      echo "invalid password"
-      echo (self.passwordHash.toHex(), hash.toHex())
-      return false
-
-  s.read(self.hideInHomecooked)
-
-  self.title = s.readCStr(32)
-  let versionNum = s.readUint16()
-  self.version = if versionNum == 0x100: v_AGA elif versionNum <= 0x202: v1_23 else: v1_24
-  self.fileSize = s.readUint32()
-  self.checksum = s.readUint32()
-  var compressedLength: uint32 = 0
-  for kind in StreamKind.items:
-    self.streamSizes[kind].packedSize = s.readUint32()
-    self.streamSizes[kind].unpackedSize = s.readUint32()
-    compressedLength += self.streamSizes[kind].packedSize
-
-  let compressedData = newStringStream(s.readStr(compressedLength.int))
-  defer: compressedData.close()
-
-  let checksum = crc32(compressedData.data)
-
-  if checksum != self.checksum:
-    echo "checksums doesn't match!"
-    return false
-
-  var sections: array[StreamKind, Stream]
-  for kind in StreamKind.items:
-    var data = compressedData.readStr(self.streamSizes[kind].packedSize.int)
-    data = uncompress(data, dfZlib)
-    doAssert data.len.uint32 == self.streamSizes[kind].unpackedSize
-    sections[kind] = newStringStream(data)
-
-  doAssert compressedData.atEnd()
-  compressedData.close()
-
-  # TODO: Parse MLLE data here
-  # doAssert s.atEnd()
-  s.close()
-
-  self.loadInfo(sections[LevelInfo])
-  self.loadEvents(sections[EventData])
-  self.loadDictionary(sections[DictData])
-  self.loadWordMap(sections[WordMapData])
-
-  return true
 
 
 proc test*(filename: string) =

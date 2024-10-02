@@ -179,6 +179,38 @@ proc loadImageData(self: var Tileset, si: Stream, sa: Stream, sm: Stream) =
   im.writeFile("uniquetiles.png")
 
 
+proc load*(tileset: var Tileset; filename: string) =
+  tileset.reset()
+  let s = newFileStream(filename)
+  defer: s.close()
+
+  let copyright = s.readStr(180)
+  discard copyright
+  let magic = s.readStr(4)
+  doAssert magic == "TILE"
+  let signature = s.readUint32()
+  doAssert signature == 0xAFBEADDE'u32
+  tileset.title = s.readStr(32).strip(leading=false, chars={'\0'})
+  let versionNum = s.readUint16()
+  tileset.version = if versionNum <= 0x200: v1_23 else: v1_24
+  tileset.fileSize = s.readUint32()
+  tileset.checksum = s.readUint32()
+
+  for kind in StreamKind.items:
+    tileset.streamSizes[kind].packedSize = s.readUint32()
+    tileset.streamSizes[kind].unpackedSize = s.readUint32()
+
+  var sections: array[StreamKind, Stream]
+  for kind in StreamKind.items:
+    sections[kind] = newStringStream(uncompress(s.readStr(tileset.streamSizes[kind].packedSize.int), dfZlib))
+
+  doAssert s.atEnd()
+  s.close()
+
+  tileset.loadInfo(sections[TilesetInfo])
+  tileset.loadImageData(sections[ImageData], sections[TransData], sections[MaskData])
+
+
 proc debug*(self: Tileset) =
   echo "drawing tileset buffers"
 
@@ -242,37 +274,6 @@ proc debug*(self: Tileset) =
 
   echo "saving"
   im.writeFile("tileset.png")
-
-proc load*(tileset: var Tileset; filename: string) =
-  tileset.reset()
-  let s = newFileStream(filename)
-  defer: s.close()
-
-  let copyright = s.readStr(180)
-  discard copyright
-  let magic = s.readStr(4)
-  doAssert magic == "TILE"
-  let signature = s.readUint32()
-  doAssert signature == 0xAFBEADDE'u32
-  tileset.title = s.readStr(32).strip(leading=false, chars={'\0'})
-  let versionNum = s.readUint16()
-  tileset.version = if versionNum <= 0x200: v1_23 else: v1_24
-  tileset.fileSize = s.readUint32()
-  tileset.checksum = s.readUint32()
-
-  for kind in StreamKind.items:
-    tileset.streamSizes[kind].packedSize = s.readUint32()
-    tileset.streamSizes[kind].unpackedSize = s.readUint32()
-
-  var sections: array[StreamKind, Stream]
-  for kind in StreamKind.items:
-    sections[kind] = newStringStream(uncompress(s.readStr(tileset.streamSizes[kind].packedSize.int), dfZlib))
-
-  doAssert s.atEnd()
-  s.close()
-
-  tileset.loadInfo(sections[TilesetInfo])
-  tileset.loadImageData(sections[ImageData], sections[TransData], sections[MaskData])
 
 proc test*(filename: string) =
   var tileset = Tileset()

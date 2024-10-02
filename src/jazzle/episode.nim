@@ -29,39 +29,6 @@ proc readCStr(s: Stream, length: int): string =
   let pos = result.find('\0')
   if pos != -1: result.setLen(pos)
 
-proc debug*(self: Episode; palette: string) =
-  var im1 = newImage(self.width.int, self.height.int)
-  for y in 0..<self.height.int:
-    for x in 0..<self.width.int:
-      let index = self.imageData[EpisodeData1][y * self.width.int + x].uint8
-      im1[x, y] = ColorRGB(
-        r: palette[index.int * 4 + 0].uint8,
-        g: palette[index.int * 4 + 1].uint8,
-        b: palette[index.int * 4 + 2].uint8
-      )
-
-  im1.writeFile("episode1.png")
-
-  var im2 = newImage(self.widthTitle.int, self.heightTitle.int)
-  var im3 = newImage(self.widthTitle.int, self.heightTitle.int)
-  for y in 0..<self.heightTitle.int:
-    for x in 0..<self.widthTitle.int:
-      let index2 = self.imageData[EpisodeData2][y * self.widthTitle.int + x].uint8
-      im2[x, y] = ColorRGB(
-        r: palette[index2.int * 4 + 0].uint8,
-        g: palette[index2.int * 4 + 1].uint8,
-        b: palette[index2.int * 4 + 2].uint8
-      )
-      let index3 = self.imageData[EpisodeData3][y * self.widthTitle.int + x].uint8
-      im3[x, y] = ColorRGB(
-        r: palette[index3.int * 4 + 0].uint8,
-        g: palette[index3.int * 4 + 1].uint8,
-        b: palette[index3.int * 4 + 2].uint8
-      )
-
-  im2.writeFile("episode2.png")
-  im3.writeFile("episode3.png")
-
 
 proc load*(self: var Episode; filename: string; password: string = ""): bool =
   self.reset()
@@ -103,6 +70,39 @@ proc load*(self: var Episode; filename: string; password: string = ""): bool =
 
   return true
 
+
+proc debug*(self: Episode; palette: string) =
+  var im1 = newImage(self.width.int, self.height.int)
+  for y in 0..<self.height.int:
+    for x in 0..<self.width.int:
+      let index = self.imageData[EpisodeData1][y * self.width.int + x].uint8
+      im1[x, y] = ColorRGB(
+        r: palette[index.int * 4 + 0].uint8,
+        g: palette[index.int * 4 + 1].uint8,
+        b: palette[index.int * 4 + 2].uint8
+      )
+
+  im1.writeFile("episode1.png")
+
+  var im2 = newImage(self.widthTitle.int, self.heightTitle.int)
+  var im3 = newImage(self.widthTitle.int, self.heightTitle.int)
+  for y in 0..<self.heightTitle.int:
+    for x in 0..<self.widthTitle.int:
+      let index2 = self.imageData[EpisodeData2][y * self.widthTitle.int + x].uint8
+      im2[x, y] = ColorRGB(
+        r: palette[index2.int * 4 + 0].uint8,
+        g: palette[index2.int * 4 + 1].uint8,
+        b: palette[index2.int * 4 + 2].uint8
+      )
+      let index3 = self.imageData[EpisodeData3][y * self.widthTitle.int + x].uint8
+      im3[x, y] = ColorRGB(
+        r: palette[index3.int * 4 + 0].uint8,
+        g: palette[index3.int * 4 + 1].uint8,
+        b: palette[index3.int * 4 + 2].uint8
+      )
+
+  im2.writeFile("episode2.png")
+  im3.writeFile("episode3.png")
 
 proc test*(filename: string) =
 
