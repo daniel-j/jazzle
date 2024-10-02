@@ -89,17 +89,19 @@ proc debug*(self: Episode; palette: string) =
   for y in 0..<self.heightTitle.int:
     for x in 0..<self.widthTitle.int:
       let index2 = self.imageData[EpisodeData2][y * self.widthTitle.int + x].uint8
-      im2[x, y] = ColorRGB(
-        r: palette[index2.int * 4 + 0].uint8,
-        g: palette[index2.int * 4 + 1].uint8,
-        b: palette[index2.int * 4 + 2].uint8
-      )
+      if index2 > 0:
+        im2[x, y] = ColorRGB(
+          r: palette[index2.int * 4 + 0].uint8,
+          g: palette[index2.int * 4 + 1].uint8,
+          b: palette[index2.int * 4 + 2].uint8
+        )
       let index3 = self.imageData[EpisodeData3][y * self.widthTitle.int + x].uint8
-      im3[x, y] = ColorRGB(
-        r: palette[index3.int * 4 + 0].uint8,
-        g: palette[index3.int * 4 + 1].uint8,
-        b: palette[index3.int * 4 + 2].uint8
-      )
+      if index3 > 0:
+        im3[x, y] = ColorRGB(
+          r: palette[index3.int * 4 + 0].uint8,
+          g: palette[index3.int * 4 + 1].uint8,
+          b: palette[index3.int * 4 + 2].uint8
+        )
 
   im2.writeFile("episode2.png")
   im3.writeFile("episode3.png")
