@@ -30,7 +30,7 @@ proc readCStr(s: Stream, length: int): string =
   if pos != -1: result.setLen(pos)
 
 
-proc load*(self: var Episode; filename: string; password: string = ""): bool =
+proc load*(self: var Episode; filename: string): bool =
   self.reset()
   let s = newFileStream(filename)
   defer: s.close()
