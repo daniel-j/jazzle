@@ -113,16 +113,15 @@ proc echoColors*(str: string) =
     stdout.write(c)
   stdout.resetAttributes()
 
-proc checksum(buf: string; offset: bool = false): uint16 =
-  var sum: array[2, int] = [1, 1]
-  let start = if offset: 2 else: 0
-  for i in start..<buf.len:
+proc adler16(buf: string; offset: int = 0): uint16 =
+  var sum = [1, 1]
+  for i in offset..<buf.len:
     sum[0] = (sum[0] + buf[i].int) mod 251
     sum[1] = (sum[1] + sum[0]) mod 251
-  return sum[1].uint16 shl 8 or sum[0].uint16
+  return (sum[1].uint16 shl 8) or sum[0].uint16
 
 proc addChecksum(buf: string): string =
-  let chksum = checksum(buf)
+  let chksum = adler16(buf)
   result.add char chksum and 0xFf
   result.add char (chksum shr 8) and 0xff
   result &= buf
@@ -131,7 +130,7 @@ proc queryParse*(buf: string): QueryResponse =
   let s = newStringStream(buf)
   defer: s.close()
 
-  if checksum(buf, true) != s.readUint16() or PK_SC_STATUS != s.readUint8():
+  if adler16(buf, 2) != s.readUint16() or PK_SC_STATUS != s.readUint8():
     echo "invalid response"
     return
 
@@ -218,7 +217,7 @@ proc pingParse*(buf: string): PingResponse =
   let s = newStringStream(buf)
   defer: s.close()
 
-  if checksum(buf, true) != s.readUint16() or PK_SC_PONG != s.readUint8():
+  if adler16(buf, 2) != s.readUint16() or PK_SC_PONG != s.readUint8():
     echo "invalid response"
     return
   s.read(result.numberInList)
