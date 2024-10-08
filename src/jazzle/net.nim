@@ -8,6 +8,8 @@ import std/times
 
 export asyncdispatch
 
+const PK_CS_PING* = 0x03
+const PK_SC_PONG* = 0x04
 const PK_CS_QUERY* = 0x05
 const PK_SC_STATUS* = 0x06
 
@@ -40,6 +42,20 @@ type
     Red
     Green
     Yellow
+
+  PingFlags* {.packed.} = object
+    gameMode* {.bitsize: 3.}: GameMode
+    private* {.bitsize: 1.}: bool
+    extra* {.bitsize: 4.}: uint8
+
+  PingResponse* = object
+    address*: string
+    port*: Port
+    success*: bool
+    ping*: int
+    numberInList*: uint8
+    data*: uint32
+    flags*: PingFlags
 
   QueryFlags* {.packed.} = object
     private* {.bitsize: 1.}: bool
@@ -74,10 +90,7 @@ type
     customMode*: CustomMode
     flags*: QueryFlags
     maxScore*: uint8
-    blueScore*: uint8
-    redScore*: uint8
-    greenScore*: uint8
-    yellowScore*: uint8
+    teamScore*: array[Team, uint8]
     players*: seq[QueryPlayer]
     levelFile*: string
 
@@ -101,12 +114,12 @@ proc echoColors*(str: string) =
   stdout.resetAttributes()
 
 proc checksum(buf: string; offset: bool = false): uint16 =
-  var x, y = 1
+  var sum: array[2, int] = [1, 1]
   let start = if offset: 2 else: 0
   for i in start..<buf.len:
-    x += buf[i].int
-    y += x
-  return uint16 (x mod 251) or ((y mod 251) shl 8)
+    sum[0] = (sum[0] + buf[i].int) mod 251
+    sum[1] = (sum[1] + sum[0]) mod 251
+  return sum[1].uint16 shl 8 or sum[0].uint16
 
 proc addChecksum(buf: string): string =
   let chksum = checksum(buf)
@@ -151,10 +164,7 @@ proc queryParse*(buf: string): QueryResponse =
       s.read(result.flags)
       if not s.atEnd() and extendedPlus and not result.flags.private:
         s.read(result.maxScore)
-        s.read(result.blueScore)
-        s.read(result.redScore)
-        s.read(result.greenScore)
-        s.read(result.yellowScore)
+        s.read(result.teamScore)
         result.players.setLen(result.playerCount)
         for player in result.players.mitems:
           var chr: char
@@ -203,6 +213,42 @@ proc broadcastQuery*(port: Port = Port(10052); counter: uint8 = 0; timeout: int 
     q.port = res.port
     result.add(q)
     fut = socket.recvFrom(1024)
+
+proc pingParse*(buf: string): PingResponse =
+  let s = newStringStream(buf)
+  defer: s.close()
+
+  if checksum(buf, true) != s.readUint16() or PK_SC_PONG != s.readUint8():
+    echo "invalid response"
+    return
+  s.read(result.numberInList)
+  s.read(result.data)
+  s.read(result.flags)
+  result.success = true
+
+
+proc ping*(address: string, port: Port; numberInList: uint8 = 0; timeout: int = 1000): Future[PingResponse] {.async.} =
+  let socket = newAsyncSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+  defer: socket.close()
+  socket.bindAddr()
+  let data: uint32 = 1234
+  let s = newStringStream()
+  s.write(uint8(PK_CS_PING))
+  s.write(numberInList)
+  s.write(data)
+  #s.write("21  ")
+  let packet = s.data
+  s.close()
+  let startTime = now()
+  await socket.sendTo(address, port, addChecksum(packet))
+  let res = socket.recvFrom(1024)
+  if await res.withTimeout(timeout):
+    let endTime = now()
+    result = pingParse(res.read().data)
+    result.ping = (endTime - startTime).inMilliseconds
+    result.address = address
+    result.port = port
+
 
 proc listserverServers*(host: string): seq[tuple[address: string, port: Port]] =
   let client = newAsyncSocket()
