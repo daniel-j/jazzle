@@ -8,9 +8,11 @@ echo ""
 echo "=== Listserver: " & listserver & " ==="
 echo ""
 
+let socket = initUdpClient()
+
 var queries: seq[Future[QueryResponse]] = @[]
-for server in listserverServers(listserver):
-  let q = query(server.address, server.port)
+for i, server in listserverServers(listserver):
+  let q = socket.query(server.address, server.port, i.uint8)
   queries.add(q)
 
 
@@ -24,7 +26,7 @@ echo "=== Servers on Local Area Network ==="
 echo ""
 
 # query servers on LAN
-let servers = broadcastQuery()
+let servers = socket.broadcastQuery()
 for q in servers:
   if not q.success:
     continue

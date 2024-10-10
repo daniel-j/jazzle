@@ -8,12 +8,13 @@ import std/times
 
 export asyncdispatch
 
-const PK_CS_PING* = 0x03
-const PK_SC_PONG* = 0x04
-const PK_CS_QUERY* = 0x05
-const PK_SC_STATUS* = 0x06
-
 type
+
+  UdpPacketId* {.size: 1.} = enum
+    PkCsPing = 0x03
+    PkScPong = 0x04
+    PkCsQuery = 0x05
+    PkScStatus = 0x06
 
   GameMode* {.size: 1.} = enum
     Singleplayer
@@ -44,9 +45,9 @@ type
     Yellow
 
   PingFlags* {.packed.} = object
-    gameMode* {.bitsize: 3.}: GameMode
+    gameMode* {.bitsize: 4.}: GameMode
     private* {.bitsize: 1.}: bool
-    extra* {.bitsize: 4.}: uint8
+    extra* {.bitsize: 3.}: uint8
 
   PingResponse* = object
     address*: string
@@ -94,6 +95,13 @@ type
     players*: seq[QueryPlayer]
     levelFile*: string
 
+  UdpClient* = object
+    socket: AsyncSocket
+
+proc `=destroy`(self: UdpClient) =
+  if not self.socket.isNil:
+    self.socket.close()
+
 const teamColorPrefix*: array[Team, string] = [
   "|||",
   "||",
@@ -126,13 +134,31 @@ proc addChecksum(buf: string): string =
   result.add char (chksum shr 8) and 0xff
   result &= buf
 
-proc queryParse*(buf: string): QueryResponse =
-  let s = newStringStream(buf)
-  defer: s.close()
+proc validateUdpPacket(buf: string): bool =
+  if buf.len < 3: return false
+  let checksum = buf[0].uint16 or (buf[1].uint16 shl 8)
+  if adler16(buf, 2) == checksum:
+    return true
 
-  if adler16(buf, 2) != s.readUint16() or PK_SC_STATUS != s.readUint8():
+proc pingParse*(buf: string): PingResponse =
+  if not validateUdpPacket(buf) or PkScPong.char != buf[2]:
     echo "invalid response"
     return
+  let s = newStringStream(buf)
+  defer: s.close()
+  s.setPosition(3)
+  s.read(result.numberInList)
+  s.read(result.data)
+  s.read(result.flags)
+  result.success = true
+
+proc queryParse*(buf: string): QueryResponse =
+  if not validateUdpPacket(buf) or PkScStatus.char != buf[2]:
+    echo "invalid response"
+    return
+  let s = newStringStream(buf)
+  defer: s.close()
+  s.setPosition(3)
 
   let nonplusLength = 18 + buf[16].int
   let plusLiteLength = nonplusLength + 2
@@ -181,55 +207,8 @@ proc queryParse*(buf: string): QueryResponse =
   #   echo "extra data: " & s.readAll().toHex()
   # doAssert s.atEnd()
 
-proc query*(address: string, port: Port; counter: uint8 = 0; timeout: int = 1000): Future[QueryResponse] {.async.} =
-  let socket = newAsyncSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-  defer: socket.close()
-  socket.bindAddr()
-  let packet = char(PK_CS_QUERY) & char(counter) & char(1)
-  let startTime = now()
-  await socket.sendTo(address, port, addChecksum(packet))
-  let res = socket.recvFrom(1024)
-  if await res.withTimeout(timeout):
-    let endTime = now()
-    result = queryParse(res.read().data)
-    result.ping = (endTime - startTime).inMilliseconds
-    result.address = address
-    result.port = port
 
-
-proc broadcastQuery*(port: Port = Port(10052); counter: uint8 = 0; timeout: int = 200): seq[QueryResponse] =
-  let socket = newAsyncSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-  defer: socket.close()
-  socket.setSockOpt(OptBroadcast, true)
-  socket.bindAddr()
-  let packet = char(PK_CS_QUERY) & char(counter) & char(1)
-  waitFor socket.sendTo("255.255.255.255", port, addChecksum(packet))
-  var fut = socket.recvFrom(1024)
-  while waitFor fut.withTimeout(timeout):
-    let res = waitFor fut
-    var q = queryParse(res.data)
-    q.address = res.address
-    q.port = res.port
-    result.add(q)
-    fut = socket.recvFrom(1024)
-
-proc pingParse*(buf: string): PingResponse =
-  let s = newStringStream(buf)
-  defer: s.close()
-
-  if adler16(buf, 2) != s.readUint16() or PK_SC_PONG != s.readUint8():
-    echo "invalid response"
-    return
-  s.read(result.numberInList)
-  s.read(result.data)
-  s.read(result.flags)
-  result.success = true
-
-
-proc ping*(address: string, port: Port; numberInList: uint8 = 0; timeout: int = 1000): Future[PingResponse] {.async.} =
-  let socket = newAsyncSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-  defer: socket.close()
-  socket.bindAddr()
+proc ping*(client: UdpClient; address: string, port: Port; numberInList: uint8 = 0; timeout: int = 1000): Future[PingResponse] {.async.} =
   let data: uint32 = 1234
   let s = newStringStream()
   s.write(uint8(PK_CS_PING))
@@ -239,8 +218,8 @@ proc ping*(address: string, port: Port; numberInList: uint8 = 0; timeout: int = 
   let packet = s.data
   s.close()
   let startTime = now()
-  await socket.sendTo(address, port, addChecksum(packet))
-  let res = socket.recvFrom(1024)
+  await client.socket.sendTo(address, port, addChecksum(packet))
+  let res = client.socket.recvFrom(1024)
   if await res.withTimeout(timeout):
     let endTime = now()
     result = pingParse(res.read().data)
@@ -248,6 +227,35 @@ proc ping*(address: string, port: Port; numberInList: uint8 = 0; timeout: int = 
     result.address = address
     result.port = port
 
+proc query*(client: UdpClient; address: string, port: Port; counter: uint8 = 0; timeout: int = 1000): Future[QueryResponse] {.async.} =
+  let packet = char(PK_CS_QUERY) & char(counter) & char(1)
+  let startTime = now()
+  await client.socket.sendTo(address, port, addChecksum(packet))
+  let res = client.socket.recvFrom(1024)
+  if await res.withTimeout(timeout):
+    let endTime = now()
+    result = queryParse(res.read().data)
+    result.ping = (endTime - startTime).inMilliseconds
+    result.address = address
+    result.port = port
+
+proc broadcastQuery*(client: UdpClient; port: Port = Port(10052); counter: uint8 = 0; timeout: int = 200): seq[QueryResponse] =
+  let packet = char(PK_CS_QUERY) & char(counter) & char(1)
+  client.socket.setSockOpt(OptBroadcast, true)
+  waitFor client.socket.sendTo("255.255.255.255", port, addChecksum(packet))
+  client.socket.setSockOpt(OptBroadcast, false)
+  var fut = client.socket.recvFrom(1024)
+  while waitFor fut.withTimeout(timeout):
+    let res = waitFor fut
+    var q = queryParse(res.data)
+    q.address = res.address
+    q.port = res.port
+    result.add(q)
+    fut = client.socket.recvFrom(1024)
+
+proc initUdpClient*(): owned UdpClient =
+  result.socket = newAsyncSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+  result.socket.bindAddr()
 
 proc listserverServers*(host: string): seq[tuple[address: string, port: Port]] =
   let client = newAsyncSocket()
