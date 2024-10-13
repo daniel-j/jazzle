@@ -1,13 +1,14 @@
 
 when defined(emscripten):
   --define:GraphicsApiOpenGlEs2
-  # --define:NaylibWebResources
-  # switch("define", "NaylibWebResourcesPath=assets")
-  # switch("define", "NaylibWebPthreadPoolSize=2")
-  # --define:NaylibWebAsyncify
+  --define:NaylibWebResources
+  switch("define", "NaylibWebResourcesPath=assets")
+  #switch("define", "NaylibWebPthreadPoolSize=2")
+  #--define:NaylibWebAsyncify
   --os:linux
   --cpu:wasm32
   --cc:clang
+  --debugger:native
   when buildOS == "windows":
     --clang.exe:emcc.bat
     --clang.linkerexe:emcc.bat
@@ -22,6 +23,8 @@ when defined(emscripten):
   --threads:on
   --panics:on
   --define:noSignalHandler
+  --passL:"-sSTACK_SIZE=1mb"
   --passL:"-o build/index.html"
   # Use raylib/src/shell.html or raylib/src/minshell.html
   --passL:"--shell-file tests/minshell.html"
+  --passL:"-gsource-map"

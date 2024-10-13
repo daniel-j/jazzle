@@ -335,10 +335,8 @@ proc parseEventParams*(event: Event): seq[int] =
     offset += size
 
 
-proc load*(self: var Level; filename: string; password: string = ""): bool =
+proc load*(self: var Level; s: Stream; password: string = ""): bool =
   self.reset()
-  let s = newFileStream(filename)
-  defer: s.close()
 
   let copyright = s.readStr(180)
   discard copyright
@@ -398,6 +396,11 @@ proc load*(self: var Level; filename: string; password: string = ""): bool =
 
   return true
 
+proc load*(self: var Level; filename: string; password: string = ""): bool =
+  self.reset()
+  let s = newFileStream(filename)
+  defer: s.close()
+  self.load(s)
 
 proc debug*(self: Level) =
 
