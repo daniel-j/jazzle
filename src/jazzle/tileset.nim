@@ -178,11 +178,8 @@ proc loadImageData(self: var Tileset, si: Stream, sa: Stream, sm: Stream) =
   # DEBUG
   im.writeFile("uniquetiles.png")
 
-
-proc load*(tileset: var Tileset; filename: string) =
+proc load*(tileset: var Tileset; s: Stream) =
   tileset.reset()
-  let s = newFileStream(filename)
-  defer: s.close()
 
   let copyright = s.readStr(180)
   discard copyright
@@ -210,6 +207,11 @@ proc load*(tileset: var Tileset; filename: string) =
   tileset.loadInfo(sections[TilesetInfo])
   tileset.loadImageData(sections[ImageData], sections[TransData], sections[MaskData])
 
+proc load*(tileset: var Tileset; filename: string) =
+  tileset.reset()
+  let s = newFileStream(filename)
+  defer: s.close()
+  tileset.load(s)
 
 proc debug*(self: Tileset) =
   echo "drawing tileset buffers"
