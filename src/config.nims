@@ -20,7 +20,7 @@ when defined(emscripten):
     --clang.cpp.exe:emcc
     --clang.cpp.linkerexe:emcc
   --mm:orc
-  --threads:on
+  --threads:off
   --panics:on
   --define:noSignalHandler
   --passL:"-sSTACK_SIZE=1mb"
