@@ -18,28 +18,14 @@ var currentLevel: Level
 var texture: Texture2D
 var paletteTexture: Texture2D
 var layerTexture: Texture2D
+var tilesetMap: Texture2D
+var tilesetMapData: seq[GrayAlpha]
 var shader: Shader
 var paletteLoc: ShaderLocation
 var tilesetLoc: ShaderLocation
-var layerSize: ShaderLocation
+var layerSizeLoc: ShaderLocation
+var tilesetMapLoc: ShaderLocation
 var camera: Camera2D
-
-#[
-proc calculateAnimTile(animId: int; flipped: bool = false; vflipped: bool = false; counter: int = 0): Tile =
-  if (counter > 10) return new Tile()
-  let currentFrame = 0
-  let anim = app.j2l.anims[animId]
-  if (!anim) return new Tile()
-  currentFrame = Math.floor(anim.speed * (Date.now() / 1000) % anim.frames.length)
-  let tile = anim.frames[currentFrame]
-  if (tile.animated) {
-    tile = r.calculateAnimTile(tile.id, tile.flipped ^ flipped, tile.vflipped ^ vflipped, ++counter)
-  }
-  tile = new Tile(tile)
-  tile.flipped = tile.flipped ^ flipped
-  tile.vflipped = tile.vflipped ^ vflipped
-  return tile
-]#
 
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
@@ -50,8 +36,14 @@ proc update() =
   camera.offset.x = -mousePos.x
   camera.offset.y = -mousePos.y
 
-  let t = getFrameTime()
-  
+  currentLevel.updateAnims(getTime())
+
+  let offset = currentLevel.animOffset.int
+  for i, anim in currentLevel.anims:
+    let tileId = currentLevel.calculateAnimTile(i.uint16).tileId
+    tilesetMapData[offset + i].gray = uint8 tileId mod 64
+    tilesetMapData[offset + i].alpha = uint8 tileId div 64
+  rlgl.updateTexture(tilesetMap.id, 0, 0, 64, 64, UncompressedGrayAlpha, tilesetMapData[0].addr)
 
 proc draw() =
   beginDrawing()
@@ -60,7 +52,8 @@ proc draw() =
     shaderMode(shader):
       setShaderValueTexture(shader, paletteLoc, paletteTexture)
       setShaderValueTexture(shader, tilesetLoc, texture)
-      setShaderValue(shader, layerSize, Vector2(x: currentLevel.layers[3].width.float, y: currentLevel.layers[3].height.float))
+      setShaderValueTexture(shader, tilesetMapLoc, tilesetMap)
+      setShaderValue(shader, layerSizeLoc, Vector2(x: currentLevel.layers[3].width.float, y: currentLevel.layers[3].height.float))
       drawTexture(layerTexture, Rectangle(x: 0, y: 0, width: currentLevel.layers[3].width.float32, height: currentLevel.layers[3].height.float32), Rectangle(x: 0, y: 0, width: currentLevel.layers[3].width.float32 * 32, height: currentLevel.layers[3].height.float32 * 32), Vector2(x: 0, y: 0), 0, White)
   drawText("Congrats! You created your first window!", 190, 100, 20, LightGray)
   drawText("FPS: " & $getFPS(), 190, 130, 20, Gold)
@@ -93,10 +86,14 @@ proc main =
   const width = 64 * 32
   const height = 64 * 32
   var imageData = newSeq[GrayAlpha](width * height)
+  tilesetMapData = newSeq[GrayAlpha](64 * 64)
 
   for i in 1..<currentTileset.maxTiles.int:
     let tileId = currentTileset.tileOffsets[i].image
+    if tileId == 0: continue
     let transOffset = currentTileset.tileOffsets[i].transOffset
+    tilesetMapData[i].gray = uint8 (i mod 64)
+    tilesetMapData[i].alpha = uint8 (i div 64)
     for j in 0..<1024:
       let x = (i mod 64) * 32 + (j mod 32)
       let y = (i div 64) * 32 + (j div 32)
@@ -112,6 +109,14 @@ proc main =
     format: format
   )
   imageData.reset()
+
+  tilesetMap = Texture2D(
+    id: rlgl.loadTexture(tilesetMapData[0].addr, 64, 64, UncompressedGrayAlpha.int32, 1),
+    width: 64,
+    height: 64,
+    mipmaps: 1,
+    format: UncompressedGrayAlpha
+  )
 
   paletteTexture = Texture2D(
     id: rlgl.loadTexture(currentTileset.palette[0].addr, 256.int32, 1.int32, UncompressedR8g8b8a8.int32, 1),
@@ -132,7 +137,8 @@ proc main =
         for t, tile in word.pairs:
           if tile.tileId == 0: continue
           if ((j * 4 + t) mod layer.realWidth.int) >= layer.width.int: continue
-          let tileId = tile.tileId
+          var tileId = tile.tileId
+          if tile.animated: tileId += currentLevel.animOffset
           let x = ((j * 4 + t) mod layer.realWidth.int)
           let y = ((j * 4 + t) div layer.realWidth.int)
           let index = x + y * layer.width.int
@@ -155,7 +161,11 @@ proc main =
   shader = loadShaderFromMemory("", shaderPrefix & tileShaderFs)
   paletteLoc = getShaderLocation(shader, "texture1")
   tilesetLoc = getShaderLocation(shader, "texture2")
-  layerSize = getShaderLocation(shader, "layerSize")
+  tilesetMapLoc = getShaderLocation(shader, "texture3")
+  layerSizeLoc = getShaderLocation(shader, "layerSize")
+
+  for anim in currentLevel.anims.mitems:
+    anim.state.lastTime = getTime()
 
   when defined(emscripten):
     emscriptenSetMainLoop(updateDrawFrame, 0, 1)

@@ -1,2 +1,2 @@
 import jazzle/level
-level.test("Battle1.j2l")
+level.test("Tube2.j2l")

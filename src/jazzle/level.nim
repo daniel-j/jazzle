@@ -3,6 +3,7 @@ import std/strutils
 import std/tables
 import std/bitops
 import std/sets
+import std/random
 import pixie
 import zippy
 import zippy/crc
@@ -56,7 +57,6 @@ type
   WordId* = uint16
   WordTiles* = array[4, Tile]
 
-
   TileType* = enum
     Default = 0
     Translucent = 1
@@ -66,14 +66,20 @@ type
     HeatEffect = 5 # plus
     Frozen = 6 # plus
 
+  AnimatedTileState* = object
+    currentFrame*: int
+    lastTime*: float64
+    runningFrame*: int
+    runningWait*: int
+
   AnimatedTile* {.packed.} = object
-    frameWait*: uint16
-    randomWait*: uint16
-    pingPongWait*: uint16
+    frameWait*: int16
+    randomWait*: int16
+    pingPongWait*: int16
     pingPong*: bool
-    speed*: uint8
-    frameCount*: uint8
+    speed*: int8
     frames*: seq[Tile]
+    state*: AnimatedTileState
 
   LayerProperties* {.packed.} = object
     parallaxStars* {.bitsize: 1.}: bool
@@ -160,6 +166,50 @@ proc maxAnimTiles*(self: Level): uint16 =
   else:
     256'u16
 
+proc parseTile*(self: Level; rawtile: uint16): Tile =
+  if self.version != v1_24:
+    result = Tile(tileId: rawtile and 1023, flipped: (rawtile and 0x400) > 0)
+  else:
+    result = Tile(tileId: rawtile and 4095, flipped: (rawtile and 0x1000) > 0)
+  result.vflipped = (rawtile and 0x2000) > 0
+  if result.tileId >= self.animOffset:
+    result.animated = true
+    result.tileId -= self.animOffset
+
+proc updateAnims*(self: var Level; t: float64) =
+  for i, anim in self.anims.mpairs:
+    if anim.speed == 0: continue
+    let timeStep = 1.0 / anim.speed.float64
+    let dt = t - anim.state.lastTime
+    let count = dt / timeStep
+    anim.state.lastTime = t - (count mod 1.0) * timeStep
+
+    var runningLength = anim.frames.len + max(0, anim.frameWait + anim.state.runningWait)
+    if anim.pingPong:
+      runningLength += anim.frames.len + anim.pingPongWait
+    anim.state.runningFrame += count.int
+
+    if anim.state.runningFrame >= runningLength:
+      anim.state.runningFrame = anim.state.runningFrame mod runningLength
+      anim.state.runningWait = rand(-anim.randomWait .. anim.randomWait)
+
+    if not anim.pingPong:
+      anim.state.currentFrame = min(anim.state.runningFrame, anim.frames.len - 1)
+    else:
+      if anim.state.runningFrame < anim.frames.len:
+        anim.state.currentFrame = anim.state.runningFrame
+      elif anim.state.runningFrame >= anim.frames.len + anim.pingPongWait and anim.state.runningFrame < anim.frames.len*2 + anim.pingPongWait:
+        anim.state.currentFrame = max(0, anim.frames.len * 2 + anim.pingPongWait - 1 - anim.state.runningFrame)
+
+proc calculateAnimTile*(self: Level; animId: uint16; flipped: bool = false; vflipped: bool = false; counter: int = 0): Tile =
+  if counter > 10: return # limit 10 recursions
+  let anim = self.anims[animId]
+  result = anim.frames[anim.state.currentFrame]
+  if result.animated:
+    result = self.calculateAnimTile(result.tileId, bool result.flipped.ord xor flipped.ord, bool result.vflipped.ord xor vflipped.ord, counter + 1)
+
+  result.flipped = bool result.flipped.ord xor flipped.ord
+  result.vflipped = bool result.vflipped.ord xor vflipped.ord
 
 proc readCStr(s: Stream, length: int): string =
   result = s.readStr(length)
@@ -264,8 +314,9 @@ proc loadInfo(self: var Level, s: Stream) =
     anim.frames.setLen(frameCount)
     var rawframes: array[64, uint16]
     s.read(rawframes)
-    for f, frame in anim.frames.mpairs:
-      frame.tileId = rawframes[f] # TODO: parse tile data
+    for f, frame in anim.frames:
+      anim.frames[f] = self.parseTile(rawframes[f])
+
 
   # remaining buffer of data1 is just zeroes
   s.close()
@@ -284,21 +335,17 @@ proc loadDictionary(self: var Level; s: Stream) =
   for word in self.dictionary.mitems:
     s.read(rawword)
     for t, rawtile in rawword.pairs:
-      if self.version != v1_24:
-        word[t] = Tile(tileId: rawtile and 1023, flipped: (rawtile and 0x400) > 0)
-      else:
-        word[t] = Tile(tileId: rawtile and 4095, flipped: (rawtile and 0x1000) > 0)
-      word[t].vflipped = (rawtile and 0x2000) > 0
-      if word[t].tileId >= self.animOffset:
-        word[t].animated = true
+      word[t] = self.parseTile(rawtile)
   doAssert s.atEnd()
   s.close()
 
 proc loadWordMap(self: var Level; s: Stream)=
+  echo StringStream(s).data.len
   for i in 0..<8:
     if not self.layers[i].haveAnyTiles:
       continue
-    self.layers[i].wordMap.setLen((self.layers[i].realWidth div 4) * self.layers[i].height)
+    echo (self.layers[i].realWidth, (self.layers[i].realWidth+3) div 4)
+    self.layers[i].wordMap.setLen(((self.layers[i].realWidth+3) div 4) * self.layers[i].height)
     for j in 0..<self.layers[i].wordMap.len:
       s.read(self.layers[i].wordMap[j])
   doAssert s.atEnd()
@@ -430,10 +477,10 @@ proc debug*(self: Level) =
   tileset.load(self.tileset)
 
   if self.animCount.int > 0:
-    var highestFrame: uint8 = 0
+    var highestFrame = 0
     for anim in self.anims:
-      if anim.frameCount > highestFrame:
-        highestFrame = anim.frameCount
+      if anim.frames.len > highestFrame:
+        highestFrame = anim.frames.len
     if highestFrame > 0:
       echo "drawing anims"
       var ima = newImage(32 * highestFrame.int,  32 * self.animCount.int)
@@ -490,9 +537,10 @@ proc debug*(self: Level) =
       for t, tile in word.pairs:
         if tile.tileId == 0: continue
         if ((j * 4 + t) mod layer.realWidth.int) >= layer.width.int: continue
-        let tileId = tile.tileId mod self.animOffset
-        let isAnim = tile.tileId >= self.animOffset
-        if isAnim: continue
+        let tileId = if not tile.animated:
+          tile.tileId
+        else:
+          self.calculateAnimTile(tile.tileId).tileId
         let tileOffset = tileset.tileOffsets[tileId].image
         let tilesetTile = tileset.tileImage[tileOffset]
         for k in 0..<1024:
