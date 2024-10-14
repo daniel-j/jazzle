@@ -40,9 +40,10 @@ proc update() =
 
   let offset = currentLevel.animOffset.int
   for i, anim in currentLevel.anims:
-    let tileId = currentLevel.calculateAnimTile(i.uint16).tileId
-    tilesetMapData[offset + i].gray = uint8 tileId mod 64
-    tilesetMapData[offset + i].alpha = uint8 tileId div 64
+    let tile = currentLevel.calculateAnimTile(i.uint16)
+    let tileId = tile.tileId + tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
+    tilesetMapData[offset + i].gray = uint8 tileId mod 256
+    tilesetMapData[offset + i].alpha = uint8 tileId div 256
   rlgl.updateTexture(tilesetMap.id, 0, 0, 64, 64, UncompressedGrayAlpha, tilesetMapData[0].addr)
 
 proc draw() =
@@ -92,8 +93,8 @@ proc main =
     let tileId = currentTileset.tileOffsets[i].image
     if tileId == 0: continue
     let transOffset = currentTileset.tileOffsets[i].transOffset
-    tilesetMapData[i].gray = uint8 (i mod 64)
-    tilesetMapData[i].alpha = uint8 (i div 64)
+    tilesetMapData[i].gray = uint8 i mod 256
+    tilesetMapData[i].alpha = uint8 i div 256
     for j in 0..<1024:
       let x = (i mod 64) * 32 + (j mod 32)
       let y = (i div 64) * 32 + (j div 32)
@@ -139,11 +140,12 @@ proc main =
           if ((j * 4 + t) mod layer.realWidth.int) >= layer.width.int: continue
           var tileId = tile.tileId
           if tile.animated: tileId += currentLevel.animOffset
+          tileId += tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
           let x = ((j * 4 + t) mod layer.realWidth.int)
           let y = ((j * 4 + t) div layer.realWidth.int)
           let index = x + y * layer.width.int
-          layerData[index].gray = uint8 tileId mod 64
-          layerData[index].alpha = uint8 tileId div 64
+          layerData[index].gray = uint8 tileId mod 256
+          layerData[index].alpha = uint8 tileId div 256
 
     layerTexture = Texture2D(
       id: rlgl.loadTexture(layerData[0].addr, layer.width.int32, layer.height.int32, UncompressedGrayAlpha.int32, 1),
@@ -155,8 +157,12 @@ proc main =
     layerData.reset()
 
   let shaderPrefix = case rlgl.getVersion():
-  of Opengl33: "#version 330\nout vec4 finalColor;"
-  else: "#version 100\nprecision mediump float;\n#define texture texture2D\n#define finalColor gl_FragColor\n#define in varying\n"
+  of OpenGl43, OpenGl33: "#version 330\nout vec4 finalColor;\n"
+  of OpenGlEs20: "#version 100\nprecision mediump float;\n#define texture texture2D\n#define finalColor gl_FragColor\n#define in varying\n"
+  of OpenGlEs30: "#version 300 es\nprecision mediump float;\nout vec4 finalColor;\n"
+  else: ""
+
+  echo rlgl.getVersion()
 
   shader = loadShaderFromMemory("", shaderPrefix & tileShaderFs)
   paletteLoc = getShaderLocation(shader, "texture1")

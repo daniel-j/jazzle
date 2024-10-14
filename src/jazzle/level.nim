@@ -50,7 +50,7 @@ type
 
   Tile* = object
     tileId*: uint16
-    flipped*: bool
+    hflipped*: bool
     vflipped*: bool # plus only
     animated*: bool
 
@@ -168,9 +168,9 @@ proc maxAnimTiles*(self: Level): uint16 =
 
 proc parseTile*(self: Level; rawtile: uint16): Tile =
   if self.version != v1_24:
-    result = Tile(tileId: rawtile and 1023, flipped: (rawtile and 0x400) > 0)
+    result = Tile(tileId: rawtile and 1023, hflipped: (rawtile and 0x400) > 0)
   else:
-    result = Tile(tileId: rawtile and 4095, flipped: (rawtile and 0x1000) > 0)
+    result = Tile(tileId: rawtile and 4095, hflipped: (rawtile and 0x1000) > 0)
   result.vflipped = (rawtile and 0x2000) > 0
   if result.tileId >= self.animOffset:
     result.animated = true
@@ -201,14 +201,14 @@ proc updateAnims*(self: var Level; t: float64) =
       elif anim.state.runningFrame >= anim.frames.len + anim.pingPongWait and anim.state.runningFrame < anim.frames.len*2 + anim.pingPongWait:
         anim.state.currentFrame = max(0, anim.frames.len * 2 + anim.pingPongWait - 1 - anim.state.runningFrame)
 
-proc calculateAnimTile*(self: Level; animId: uint16; flipped: bool = false; vflipped: bool = false; counter: int = 0): Tile =
+proc calculateAnimTile*(self: Level; animId: uint16; hflipped: bool = false; vflipped: bool = false; counter: int = 0): Tile =
   if counter > 10: return # limit 10 recursions
   let anim = self.anims[animId]
   result = anim.frames[anim.state.currentFrame]
   if result.animated:
-    result = self.calculateAnimTile(result.tileId, bool result.flipped.ord xor flipped.ord, bool result.vflipped.ord xor vflipped.ord, counter + 1)
+    result = self.calculateAnimTile(result.tileId, bool result.hflipped.ord xor hflipped.ord, bool result.vflipped.ord xor vflipped.ord, counter + 1)
 
-  result.flipped = bool result.flipped.ord xor flipped.ord
+  result.hflipped = bool result.hflipped.ord xor hflipped.ord
   result.vflipped = bool result.vflipped.ord xor vflipped.ord
 
 proc readCStr(s: Stream, length: int): string =
@@ -340,11 +340,9 @@ proc loadDictionary(self: var Level; s: Stream) =
   s.close()
 
 proc loadWordMap(self: var Level; s: Stream)=
-  echo StringStream(s).data.len
   for i in 0..<8:
     if not self.layers[i].haveAnyTiles:
       continue
-    echo (self.layers[i].realWidth, (self.layers[i].realWidth+3) div 4)
     self.layers[i].wordMap.setLen(((self.layers[i].realWidth+3) div 4) * self.layers[i].height)
     for j in 0..<self.layers[i].wordMap.len:
       s.read(self.layers[i].wordMap[j])
