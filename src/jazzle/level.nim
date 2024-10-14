@@ -39,7 +39,7 @@ type
     illuminate* {.bitsize: 1.}: bool
     isActive* {.bitsize: 1}: bool
     data* {.bitsize: 20.}: uint32
-  
+
   EventInfo* = object
     name*: string
     onlySingleplayer*: bool
@@ -47,19 +47,15 @@ type
     label*: string
     params*: seq[tuple[name: string, size: int]]
 
-  Tile* {.packed.} = object # 1.24
-    tileId* {.bitsize: 12.}: uint16
-    flipped* {.bitsize: 1.}: bool
-    _ {.bitsize: 3.}: uint8 # unused
-
-  TileOld* {.packed.} = object # 1.23
-    tileId* {.bitsize: 10.}: uint16
-    flipped* {.bitsize: 1.}: bool
-    _ {.bitsize: 5.}: uint8 # unused
-
-  WordTiles* = array[4, Tile]
+  Tile* = object
+    tileId*: uint16
+    flipped*: bool
+    vflipped*: bool # plus only
+    animated*: bool
 
   WordId* = uint16
+  WordTiles* = array[4, Tile]
+
 
   TileType* = enum
     Default = 0
@@ -77,7 +73,7 @@ type
     pingPong*: bool
     speed*: uint8
     frameCount*: uint8
-    frames*: array[64, Tile]
+    frames*: seq[Tile]
 
   LayerProperties* {.packed.} = object
     parallaxStars* {.bitsize: 1.}: bool
@@ -146,19 +142,9 @@ type
 
     animOffset*: uint16 # MAX_TILES minus AnimCount, also called StaticTiles
     animCount*: uint16
-    anims*: array[256, AnimatedTile]
+    anims*: seq[AnimatedTile]
 
     dictionary*: seq[WordTiles]
-
-converter oldTileToNewTile(tile: TileOld): Tile =
-  result.tileId = tile.tileId
-  result.flipped = tile.flipped
-  #result.unknown = tile.unknown
-
-converter newTileToOldTile(tile: Tile): TileOld =
-  result.tileId = tile.tileId
-  result.flipped = tile.flipped
-  #result.unknown = tile.unknown
 
 var jcsEvents: array[256, EventInfo]
 
@@ -267,9 +253,19 @@ proc loadInfo(self: var Level, s: Stream) =
   # if self.version == v_AGA:
   #   s.read(self.unknownAGA)
 
-  #self.anims.setLen(self.animCount.int)
-  for i in 0..<self.animCount.int:
-    s.read(self.anims[i])
+  self.anims.setLen(self.animCount.int)
+  for i, anim in self.anims.mpairs:
+    s.read(anim.frameWait)
+    s.read(anim.randomWait)
+    s.read(anim.pingPongWait)
+    s.read(anim.pingPong)
+    s.read(anim.speed)
+    let frameCount = s.readUint8().int
+    anim.frames.setLen(frameCount)
+    var rawframes: array[64, uint16]
+    s.read(rawframes)
+    for f, frame in anim.frames.mpairs:
+      frame.tileId = rawframes[f] # TODO: parse tile data
 
   # remaining buffer of data1 is just zeroes
   s.close()
@@ -283,12 +279,18 @@ proc loadEvents(self: var Level; s: Stream) =
   s.close()
 
 proc loadDictionary(self: var Level; s: Stream) =
-  self.dictionary.setLen(self.streamSizes[DictData].unpackedSize.int div sizeof(WordTiles))
+  self.dictionary.setLen(self.streamSizes[DictData].unpackedSize.int div 8)
+  var rawword: array[4, uint16]
   for word in self.dictionary.mitems:
-    s.read(word)
-    if self.version != v1_24:
-      for tile in word.mitems:
-        tile = Tile(cast[TileOld](tile))
+    s.read(rawword)
+    for t, rawtile in rawword.pairs:
+      if self.version != v1_24:
+        word[t] = Tile(tileId: rawtile and 1023, flipped: (rawtile and 0x400) > 0)
+      else:
+        word[t] = Tile(tileId: rawtile and 4095, flipped: (rawtile and 0x1000) > 0)
+      word[t].vflipped = (rawtile and 0x2000) > 0
+      if word[t].tileId >= self.animOffset:
+        word[t].animated = true
   doAssert s.atEnd()
   s.close()
 

@@ -20,11 +20,12 @@ when defined(emscripten):
     --clang.cpp.exe:emcc
     --clang.cpp.linkerexe:emcc
   --mm:orc
-  --threads:off
+  --threads:on
   --panics:on
   --define:noSignalHandler
   --passL:"-sSTACK_SIZE=1mb"
   --passL:"-o build/index.html"
   # Use raylib/src/shell.html or raylib/src/minshell.html
   --passL:"--shell-file tests/minshell.html"
-  --passL:"-gsource-map"
+  when not defined(release):
+    --passL:"-gsource-map"

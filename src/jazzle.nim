@@ -22,27 +22,54 @@ var shader: Shader
 var paletteLoc: ShaderLocation
 var tilesetLoc: ShaderLocation
 var layerSize: ShaderLocation
+var camera: Camera2D
 
+#[
+proc calculateAnimTile(animId: int; flipped: bool = false; vflipped: bool = false; counter: int = 0): Tile =
+  if (counter > 10) return new Tile()
+  let currentFrame = 0
+  let anim = app.j2l.anims[animId]
+  if (!anim) return new Tile()
+  currentFrame = Math.floor(anim.speed * (Date.now() / 1000) % anim.frames.length)
+  let tile = anim.frames[currentFrame]
+  if (tile.animated) {
+    tile = r.calculateAnimTile(tile.id, tile.flipped ^ flipped, tile.vflipped ^ vflipped, ++counter)
+  }
+  tile = new Tile(tile)
+  tile.flipped = tile.flipped ^ flipped
+  tile.vflipped = tile.vflipped ^ vflipped
+  return tile
+]#
 
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
 
-proc updateDrawFrame {.cdecl.} =
-  # Update and draw
-  # --------------------------------------------------------------------------------------
+proc update() =
   let mousePos = getMousePosition()
+  camera.zoom =1.0
+  camera.offset.x = -mousePos.x
+  camera.offset.y = -mousePos.y
+
+  let t = getFrameTime()
+  
+
+proc draw() =
   beginDrawing()
   clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-  shaderMode(shader):
-    setShaderValueTexture(shader, paletteLoc, paletteTexture)
-    setShaderValueTexture(shader, tilesetLoc, texture)
-    setShaderValue(shader, layerSize, Vector2(x: currentLevel.layers[3].width.float, y: currentLevel.layers[3].height.float))
-    drawTexture(layerTexture, Rectangle(x: 0, y: 0, width: currentLevel.layers[3].width.float32, height: currentLevel.layers[3].height.float32), Rectangle(x: -mousePos.x, y: -mousePos.y, width: currentLevel.layers[3].width.float32 * 32, height: currentLevel.layers[3].height.float32 * 32), Vector2(x: 0, y: 0), 0, White)
+  mode2D(camera):
+    shaderMode(shader):
+      setShaderValueTexture(shader, paletteLoc, paletteTexture)
+      setShaderValueTexture(shader, tilesetLoc, texture)
+      setShaderValue(shader, layerSize, Vector2(x: currentLevel.layers[3].width.float, y: currentLevel.layers[3].height.float))
+      drawTexture(layerTexture, Rectangle(x: 0, y: 0, width: currentLevel.layers[3].width.float32, height: currentLevel.layers[3].height.float32), Rectangle(x: 0, y: 0, width: currentLevel.layers[3].width.float32 * 32, height: currentLevel.layers[3].height.float32 * 32), Vector2(x: 0, y: 0), 0, White)
   drawText("Congrats! You created your first window!", 190, 100, 20, LightGray)
   drawText("FPS: " & $getFPS(), 190, 130, 20, Gold)
   endDrawing()
-  # --------------------------------------------------------------------------------------
 
+
+proc updateDrawFrame {.cdecl.} =
+  update()
+  draw()
 
 proc main =
 
@@ -66,7 +93,6 @@ proc main =
   const width = 64 * 32
   const height = 64 * 32
   var imageData = newSeq[GrayAlpha](width * height)
-  var layerData = newSeq[GrayAlpha]()
 
   for i in 1..<currentTileset.maxTiles.int:
     let tileId = currentTileset.tileOffsets[i].image
@@ -98,7 +124,7 @@ proc main =
   currentLevel = Level()
   if currentLevel.load(levelData):
     let layer = currentLevel.layers[3]
-    layerData.setLen(layer.width * layer.height)
+    var layerData = newSeq[GrayAlpha](layer.width * layer.height)
     if layer.haveAnyTiles:
       for j, wordId in layer.wordMap.pairs:
         if wordId == 0: continue
