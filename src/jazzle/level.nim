@@ -176,9 +176,11 @@ proc parseTile*(self: Level; rawtile: uint16): Tile =
     result.animated = true
     result.tileId -= self.animOffset
 
-proc updateAnims*(self: var Level; t: float64) =
+proc updateAnims*(self: var Level; t: float64): bool =
+  ## Updates animation frames and returns true if any change occured
   for i, anim in self.anims.mpairs:
     if anim.speed == 0: continue
+    let prevFrame = anim.state.currentFrame
     let timeStep = 1.0 / anim.speed.float64
     let dt = t - anim.state.lastTime
     let count = dt / timeStep
@@ -200,6 +202,8 @@ proc updateAnims*(self: var Level; t: float64) =
         anim.state.currentFrame = anim.state.runningFrame
       elif anim.state.runningFrame >= anim.frames.len + anim.pingPongWait and anim.state.runningFrame < anim.frames.len*2 + anim.pingPongWait:
         anim.state.currentFrame = max(0, anim.frames.len * 2 + anim.pingPongWait - 1 - anim.state.runningFrame)
+    if prevFrame != anim.state.currentFrame:
+      result = true
 
 proc calculateAnimTile*(self: Level; animId: uint16; hflipped: bool = false; vflipped: bool = false; counter: int = 0): Tile =
   if counter > 10: return # limit 10 recursions
@@ -211,7 +215,7 @@ proc calculateAnimTile*(self: Level; animId: uint16; hflipped: bool = false; vfl
   result.hflipped = bool result.hflipped.ord xor hflipped.ord
   result.vflipped = bool result.vflipped.ord xor vflipped.ord
 
-proc readCStr(s: Stream, length: int): string =
+proc readCStr(s: Stream; length: int): string =
   result = s.readStr(length)
   let pos = result.find('\0')
   if pos != -1: result.setLen(pos)

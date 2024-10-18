@@ -19,46 +19,66 @@ var texture: Texture2D
 var paletteTexture: Texture2D
 var layerTexture: Texture2D
 var tilesetMap: Texture2D
-var tilesetMapData: seq[GrayAlpha]
+var tilesetMapData: seq[uint16]
+var animGrid: Texture2D
 var shader: Shader
 var paletteLoc: ShaderLocation
 var tilesetLoc: ShaderLocation
 var layerSizeLoc: ShaderLocation
 var tilesetMapLoc: ShaderLocation
 var camera: Camera2D
+var textureParallax: RenderTexture2D
+var animsUpdated = false
+var mouseUpdated = false
+var lastMousePos = Vector2()
 
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
 
 proc update() =
   let mousePos = getMousePosition()
+  if lastMousePos != mousePos:
+    mouseUpdated = true
+  lastMousePos = mousePos
   camera.zoom =1.0
   camera.offset.x = -mousePos.x
   camera.offset.y = -mousePos.y
 
-  currentLevel.updateAnims(getTime())
+  animsUpdated = currentLevel.updateAnims(getTime())
 
-  let offset = currentLevel.animOffset.int
-  for i, anim in currentLevel.anims:
-    let tile = currentLevel.calculateAnimTile(i.uint16)
-    let tileId = tile.tileId + tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
-    tilesetMapData[offset + i].gray = uint8 tileId mod 256
-    tilesetMapData[offset + i].alpha = uint8 tileId div 256
-  rlgl.updateTexture(tilesetMap.id, 0, 0, 64, 64, UncompressedGrayAlpha, tilesetMapData[0].addr)
+  if animsUpdated:
+    let offset = currentLevel.animOffset.int
+    for i, anim in currentLevel.anims:
+      let tile = currentLevel.calculateAnimTile(i.uint16)
+      let tileId = tile.tileId + tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
+      tilesetMapData[offset + i] = tileId
+    rlgl.updateTexture(tilesetMap.id, 0, 0, 64, 64, UncompressedGrayAlpha, tilesetMapData[0].addr)
 
 proc draw() =
+  # if not animsUpdated and not mouseUpdated: return
   beginDrawing()
+  clearBackground(RayWhite)
+  if animsUpdated:
+    animsUpdated = false
+  # textureMode(textureParallax):
   clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-  mode2D(camera):
-    shaderMode(shader):
+  shaderMode(shader):
+    mode2D(camera):
       setShaderValueTexture(shader, paletteLoc, paletteTexture)
       setShaderValueTexture(shader, tilesetLoc, texture)
       setShaderValueTexture(shader, tilesetMapLoc, tilesetMap)
-      setShaderValue(shader, layerSizeLoc, Vector2(x: currentLevel.layers[3].width.float, y: currentLevel.layers[3].height.float))
-      drawTexture(layerTexture, Rectangle(x: 0, y: 0, width: currentLevel.layers[3].width.float32, height: currentLevel.layers[3].height.float32), Rectangle(x: 0, y: 0, width: currentLevel.layers[3].width.float32 * 32, height: currentLevel.layers[3].height.float32 * 32), Vector2(x: 0, y: 0), 0, White)
+      setShaderValue(shader, layerSizeLoc, Vector2(x: layerTexture.width.float, y: layerTexture.height.float))
+      drawTexture(layerTexture, Rectangle(x: 0, y: 0, width: layerTexture.width.float32, height: layerTexture.height.float32), Rectangle(x: 0, y: 0, width: float32 layerTexture.width*32, height: float32 layerTexture.height*32), Vector2(), 0, White)
+
+  shaderMode(shader):
+    setShaderValue(shader, layerSizeLoc, Vector2(x: animGrid.width.float32, y: animGrid.height.float32))
+    drawTexture(animGrid, Rectangle(x: 0, y: 0, width: animGrid.width.float32, height: animGrid.height.float32), Rectangle(x: 0, y: float32 getRenderHeight()-animGrid.height*32, width: float32 animGrid.width*32, height: float32 animGrid.height*32), Vector2(), 0, White)
+
+#  drawTexture(textureParallax.texture, Rectangle(x: 0, y: 0, width: textureParallax.texture.width.float32, height: -textureParallax.texture.height.float32), Vector2(), White)
   drawText("Congrats! You created your first window!", 190, 100, 20, LightGray)
   drawText("FPS: " & $getFPS(), 190, 130, 20, Gold)
   endDrawing()
+  mouseUpdated = false
 
 
 proc updateDrawFrame {.cdecl.} =
@@ -87,14 +107,13 @@ proc main =
   const width = 64 * 32
   const height = 64 * 32
   var imageData = newSeq[GrayAlpha](width * height)
-  tilesetMapData = newSeq[GrayAlpha](64 * 64)
+  tilesetMapData.setLen(64 * 64)
 
   for i in 1..<currentTileset.maxTiles.int:
     let tileId = currentTileset.tileOffsets[i].image
     if tileId == 0: continue
     let transOffset = currentTileset.tileOffsets[i].transOffset
-    tilesetMapData[i].gray = uint8 i mod 256
-    tilesetMapData[i].alpha = uint8 i div 256
+    tilesetMapData[i] = uint16 i
     for j in 0..<1024:
       let x = (i mod 64) * 32 + (j mod 32)
       let y = (i div 64) * 32 + (j div 32)
@@ -130,7 +149,7 @@ proc main =
   currentLevel = Level()
   if currentLevel.load(levelData):
     let layer = currentLevel.layers[3]
-    var layerData = newSeq[GrayAlpha](layer.width * layer.height)
+    var layerData = newSeq[uint16](layer.width * layer.height)
     if layer.haveAnyTiles:
       for j, wordId in layer.wordMap.pairs:
         if wordId == 0: continue
@@ -144,8 +163,7 @@ proc main =
           let x = ((j * 4 + t) mod layer.realWidth.int)
           let y = ((j * 4 + t) div layer.realWidth.int)
           let index = x + y * layer.width.int
-          layerData[index].gray = uint8 tileId mod 256
-          layerData[index].alpha = uint8 tileId div 256
+          layerData[index] = tileId
 
     layerTexture = Texture2D(
       id: rlgl.loadTexture(layerData[0].addr, layer.width.int32, layer.height.int32, UncompressedGrayAlpha.int32, 1),
@@ -155,6 +173,20 @@ proc main =
       format: UncompressedGrayAlpha
     )
     layerData.reset()
+
+    var animGridData = newSeq[uint16](currentLevel.anims.len)
+    for i in 0 ..< currentLevel.anims.len:
+      let tileId = currentLevel.animOffset.int + i
+      animGridData[i] = uint16 tileId
+
+    animGrid = Texture2D(
+      id: rlgl.loadTexture(animGridData[0].addr, 10, int32 (currentLevel.anims.len+9) div 10, UncompressedGrayAlpha.int32, 1),
+      width: 10,
+      height: int32 (currentLevel.anims.len+9) div 10,
+      mipmaps: 1,
+      format: UncompressedGrayAlpha
+    )
+    animGridData.reset()
 
   let shaderPrefix = case rlgl.getVersion():
   of OpenGl43, OpenGl33: "#version 330\nout vec4 finalColor;\n"
@@ -172,6 +204,8 @@ proc main =
 
   for anim in currentLevel.anims.mitems:
     anim.state.lastTime = getTime()
+
+  textureParallax = loadRenderTexture(600, 400)
 
   when defined(emscripten):
     emscriptenSetMainLoop(updateDrawFrame, 0, 1)
