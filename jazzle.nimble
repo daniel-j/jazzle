@@ -16,7 +16,13 @@ requires "zippy >= 0.10.16"
 requires "pixie >= 5.0.7"
 requires "parseini >= 0.3.0"
 
+taskRequires "futharkgen", "futhark >= 0.13.4"
+
 task wasm, "Compile to WASM using Emscripten":
   mkDir("assets")
   mkDir("build")
-  exec("nim " & backend & " -d:emscripten " & srcDir & "/jazzle")
+  selfExec(backend & " -d:emscripten " & srcDir & "/jazzle")
+
+task futharkgen, "Generate wrappers using Futhark":
+  selfExec("c -r -d:futharkRebuild src/jazzle/raygui.nim")
+
