@@ -25,6 +25,7 @@ when defined(emscripten):
   --panics:on
   --define:noSignalHandler
   --passL:"-sSTACK_SIZE=1mb"
+  --passL:"-sALLOW_MEMORY_GROWTH"
   --passL:"-o build/index.html"
   # Use raylib/src/shell.html or raylib/src/minshell.html
   --passL:"--shell-file tests/minshell.html"
