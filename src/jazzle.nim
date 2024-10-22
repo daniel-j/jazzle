@@ -60,7 +60,7 @@ proc update() =
 
   let t = getTime()
 
-  animsUpdated = currentLevel.updateAnims(t) or t == 0
+  animsUpdated = currentLevel.updateAnims(t)
 
   if animsUpdated:
     let offset = currentLevel.animOffset.int
