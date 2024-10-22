@@ -185,6 +185,7 @@ proc updateAnims*(self: var Level; t: float64): bool =
     let dt = t - anim.state.lastTime
     let count = dt / timeStep
     anim.state.lastTime = t - (count mod 1.0) * timeStep
+    if count <= 0: continue
 
     var runningLength = anim.frames.len + max(0, anim.frameWait + anim.state.runningWait)
     if anim.pingPong:

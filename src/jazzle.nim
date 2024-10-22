@@ -58,7 +58,9 @@ proc update() =
   #camera.offset.x = -mousePos.x
   #camera.offset.y = -mousePos.y
 
-  animsUpdated = currentLevel.updateAnims(getTime())
+  let t = getTime()
+
+  animsUpdated = currentLevel.updateAnims(t) or t == 0
 
   if animsUpdated:
     let offset = currentLevel.animOffset.int
