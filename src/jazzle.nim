@@ -109,8 +109,8 @@ proc draw() =
     for i in countdown(layerTextures.len - 1, 0):
       if i == 3:
         discard guiGrid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), nil, 32*4, 4, mouseCell)
-      template layerTexture: Texture2D = layerTextures[i]
-      drawTiles(layerTexture, Rectangle(
+      let layerTexture = layerTextures[i].addr
+      drawTiles(layerTexture[], Rectangle(
         x: float32 scrollParallaxView.x.int + scrollParallax.x.int * currentLevel.layers[i].speedX div 65536,
         y: float32 scrollParallaxView.y.int + scrollParallax.y.int * currentLevel.layers[i].speedY div 65536,
         width: float32 layerTexture.width * 32,
