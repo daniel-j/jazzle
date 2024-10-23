@@ -9,17 +9,18 @@ uniform sampler2D texture2; // tileset images 2048x2048, indexed
 uniform sampler2D texture3; // tileset mapping 64x64, contains map to static tileIds
 uniform vec2 layerSize;
 
+
 void main() {
   // load tileId from layer (it may be an animated tile and/or flipped)
   vec2 tileTex = texture(texture0, fragTexCoord).ra * 255.0;
-  float tileId = floor(tileTex.x + tileTex.y * 256.0);
+  float tileId = floor(tileTex.x + tileTex.y * 256.0 + 0.5);
   float flips1 = floor(tileId / 4096.0);
   tileId = mod(tileId, 4096.0);
   vec2 tileIdCoords = vec2(mod(tileId, 64.0), floor(tileId / 64.0));
 
   // resolve the base tile from tileset (may be flipped again, if inside an animation)
   vec2 tileMapTex = texture(texture3, tileIdCoords / 64.0).ra * 255.0;
-  tileId = floor(tileMapTex.x + tileMapTex.y * 256.0);
+  tileId = floor(tileMapTex.x + tileMapTex.y * 256.0 + 0.5);
   float flips2 = floor(tileId / 4096.0);
   tileId = mod(tileId, 4096.0);
   vec2 tileMapCoords = vec2(mod(float(tileId), 64.0), floor(tileId / 64.0));

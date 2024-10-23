@@ -28,8 +28,8 @@ var tilesetImageLoc: ShaderLocation
 var layerSizeLoc: ShaderLocation
 var tilesetMapLoc: ShaderLocation
 var camera: Camera2D
-var animsUpdated = false
-var mouseUpdated = false
+var animsUpdated = true
+var mouseUpdated = true
 var lastMousePos = Vector2()
 
 var scrollParallaxPos = Rectangle(x: 335, y: 20, width: 1, height: 1)
@@ -46,21 +46,20 @@ proc monitorChanged(monitor: int32) =
 proc drawTiles(texture: Texture2D; destRect: Rectangle) =
   let layerSize = Vector2(x: texture.width.float, y: texture.height.float)
   shader.setShaderValue(layerSizeLoc, layerSize)
-  shaderMode(shader):
-    drawTexture(texture, Rectangle(x: 0, y: 0, width: layerSize.x, height: layerSize.y), destRect, Vector2(), 0, White)
+  drawTexture(texture, Rectangle(x: 0, y: 0, width: layerSize.x, height: layerSize.y), destRect, Vector2(), 0, White)
+
 
 proc update() =
+  let t = getTime()
   let mousePos = getMousePosition()
   if lastMousePos != mousePos:
     mouseUpdated = true
   lastMousePos = mousePos
-  camera.zoom =1.0
+  camera.zoom = 1.0
   #camera.offset.x = -mousePos.x
   #camera.offset.y = -mousePos.y
 
-  let t = getTime()
-
-  animsUpdated = currentLevel.updateAnims(t)
+  animsUpdated = currentLevel.updateAnims(t) or animsUpdated
 
   if animsUpdated:
     let offset = currentLevel.animOffset.int
@@ -69,21 +68,17 @@ proc update() =
       let tileId = tile.tileId + tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
       tilesetMapData[offset + i] = tileId
     rlgl.updateTexture(tilesetIndex64Texture.id, 0, 0, 64, 64, UncompressedGrayAlpha, tilesetMapData[0].addr)
+    animsUpdated = false
 
 proc draw() =
   # if not animsUpdated and not mouseUpdated: return
   beginDrawing()
-  if animsUpdated:
-    animsUpdated = false
   clearBackground(getColor(guiGetStyle(GuiControl.Default, BackgroundColor.cint).uint32))
 
   let tilesetRec = Rectangle(x: 0, y: 0, width: float32 tilesetIndex10Texture.width * 32, height: float32 tilesetIndex10Texture.height * 32)
 
-  #shaderMode(shader):
-  #  setShaderValue(shader, layerSizeLoc, Vector2(x: animGrid.width.float32, y: animGrid.height.float32))
-  #  drawTexture(animGrid, Rectangle(x: 0, y: 0, width: animGrid.width.float32, height: animGrid.height.float32), Rectangle(x: 0, y: float32 getRenderHeight()-animGrid.height*32, width: float32 animGrid.width*32, height: float32 animGrid.height*32), Vector2(), 0, White)
 
-  scrollTilesetPos.height = getRenderHeight().float - scrollTilesetPos.y
+  scrollTilesetPos.height = getRenderHeight().float - scrollTilesetPos.y - 128
 
   var mouseCell = Vector2()
 
@@ -91,12 +86,13 @@ proc draw() =
   scissorMode(scrollTilesetView.x.int32, scrollTilesetView.y.int32, scrollTilesetView.width.int32, scrollTilesetView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
     discard guiGrid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), nil, 32*5, 5, mouseCell)
-    drawTiles(tilesetIndex10Texture, Rectangle(
-      x: scrollTilesetView.x + scrollTileset.x,
-      y: scrollTilesetView.y + scrollTileset.y,
-      width: tilesetRec.width,
-      height: tilesetRec.height
-    ))
+    shaderMode(shader):
+      drawTiles(tilesetIndex10Texture, Rectangle(
+        x: scrollTilesetView.x + scrollTileset.x,
+        y: scrollTilesetView.y + scrollTileset.y,
+        width: tilesetRec.width,
+        height: tilesetRec.height
+      ))
 
   let parallaxRec = Rectangle(x: 0, y: 0, width: layerTextures[3].width.float32*32, height: layerTextures[3].height.float32*32)
 
@@ -106,16 +102,40 @@ proc draw() =
   discard guiScrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax, scrollParallaxView)
   scissorMode(scrollParallaxView.x.int32, scrollParallaxView.y.int32, scrollParallaxView.width.int32, scrollParallaxView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-    for i in countdown(layerTextures.len - 1, 0):
+    for i in countdown(currentLevel.layers.len - 1, 0):
       if i == 3:
         discard guiGrid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), nil, 32*4, 4, mouseCell)
+      let layer = currentLevel.layers[i].addr
       let layerTexture = layerTextures[i].addr
-      drawTiles(layerTexture[], Rectangle(
-        x: float32 scrollParallaxView.x.int + scrollParallax.x.int * currentLevel.layers[i].speedX div 65536,
-        y: float32 scrollParallaxView.y.int + scrollParallax.y.int * currentLevel.layers[i].speedY div 65536,
-        width: float32 layerTexture.width * 32,
-        height: float32 layerTexture.height * 32
-      ))
+      let w = layerTexture.width * 32
+      let h = layerTexture.height * 32
+
+      var rect = Rectangle(width: float32 w, height: float32 h)
+
+      shaderMode(shader):
+        var x = scrollParallax.x.int * currentLevel.layers[i].speedX div 65536
+        while layer.properties.tileWidth and x > 0: x -= w # step back outside left edge
+        while x < scrollParallaxView.width.int: # until right edge
+          var y = scrollParallax.y.int * currentLevel.layers[i].speedY div 65536
+          while layer.properties.tileHeight and y > 0: y -= h # step back outside top edge
+          while y < scrollParallaxView.height.int: # until bottom edge
+            rect.x = float32 scrollParallaxView.x.int + x
+            rect.y = float32 scrollParallaxView.y.int + y
+            drawTiles(layerTexture[], rect)
+            if not layer.properties.tileHeight: break
+            y += h
+          if not layer.properties.tileWidth: break
+          x += w
+
+      # drawRectangleLines(Rectangle(
+      #   x: scrollParallaxView.x + scrollParallaxView.width / 2 - 640 / 2,
+      #   y: scrollParallaxView.y + scrollParallaxView.height / 2 - 480 / 2,
+      #   width: 640,
+      #   height: 480
+      # ), 1, White)
+
+  shaderMode(shader):
+    drawTiles(animGrid, Rectangle(x: 0, y: float32 getRenderHeight()-animGrid.height*32, width: float32 animGrid.width*32, height: float32 animGrid.height*32))
 
   # discard GuiButton(Rectangle(x: 25, y: 255, width: 125, height: 30), GuiIconText(ICON_FILE_SAVE.cint, "Save File".cstring))
   # let mbox = GuiMessageBox(Rectangle(x: 85, y: 70, width: 250, height: 100), "#191#Message Box", "Hi! This is a message!", "Nice;Cool")
@@ -205,20 +225,21 @@ proc main =
   if currentLevel.load(levelData):
     layerTextures.setLen(8)
     for i in 0 ..< 8:
-      let layer = currentLevel.layers[i]
+      let layer = currentLevel.layers[i].addr
       var layerData = newSeq[uint16](layer.width * layer.height)
+      let realWidth = ((layer.realWidth + 3) div 4) * 4
       if layer.haveAnyTiles:
         for j, wordId in layer.wordMap.pairs:
           if wordId == 0: continue
           let word = currentLevel.dictionary[wordId]
           for t, tile in word.pairs:
             if tile.tileId == 0: continue
-            if ((j * 4 + t) mod layer.realWidth.int) >= layer.width.int: continue
+            if ((j * 4 + t) mod realWidth.int) >= layer.width.int: continue
             var tileId = tile.tileId
             if tile.animated: tileId += currentLevel.animOffset
             tileId += tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
-            let x = ((j * 4 + t) mod layer.realWidth.int)
-            let y = ((j * 4 + t) div layer.realWidth.int)
+            let x = ((j * 4 + t) mod realWidth.int)
+            let y = ((j * 4 + t) div realWidth.int)
             let index = x + y * layer.width.int
             layerData[index] = tileId
 
@@ -243,6 +264,7 @@ proc main =
       format: UncompressedGrayAlpha
     )
     animGridData.reset()
+    animsUpdated = true
 
   let shaderPrefix = case rlgl.getVersion():
   of OpenGl43, OpenGl33: "#version 330\nout vec4 finalColor;\n"
@@ -261,9 +283,6 @@ proc main =
   shader.setShaderValueTexture(paletteLoc, paletteTexture)
   shader.setShaderValueTexture(tilesetImageLoc, tilesetImage)
   shader.setShaderValueTexture(tilesetMapLoc, tilesetIndex64Texture)
-
-  for anim in currentLevel.anims.mitems:
-    anim.state.lastTime = getTime()
 
   # guiLoadStyleJungle()
 

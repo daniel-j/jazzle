@@ -3,7 +3,6 @@ import std/strutils
 import std/tables
 import std/bitops
 import std/sets
-import std/random
 import pixie
 import zippy
 import zippy/crc
@@ -68,9 +67,6 @@ type
 
   AnimatedTileState* = object
     currentFrame*: int
-    lastTime*: float64
-    runningFrame*: int
-    runningWait*: int
 
   AnimatedTile* {.packed.} = object
     frameWait*: int16
@@ -82,11 +78,11 @@ type
     state*: AnimatedTileState
 
   LayerProperties* {.packed.} = object
-    parallaxStars* {.bitsize: 1.}: bool
-    textureMode* {.bitsize: 1.}: bool
-    limitVisibleRegion* {.bitsize: 1.}: bool
-    tileHeight* {.bitsize: 1.}: bool
     tileWidth* {.bitsize: 1.}: bool
+    tileHeight* {.bitsize: 1.}: bool
+    limitVisibleRegion* {.bitsize: 1.}: bool
+    textureMode* {.bitsize: 1.}: bool
+    parallaxStars* {.bitsize: 1.}: bool
     _ {.bitsize: 27}: uint32 # unused
 
   Layer* = object
@@ -179,36 +175,27 @@ proc parseTile*(self: Level; rawtile: uint16): Tile =
 proc updateAnims*(self: var Level; t: float64): bool =
   ## Updates animation frames and returns true if any change occured
   for i, anim in self.anims.mpairs:
-    if anim.speed == 0: continue
+    if anim.speed == 0 or anim.frames.len == 0: continue
     let prevFrame = anim.state.currentFrame
-    let timeStep = 1.0 / anim.speed.float64
-    let dt = t - anim.state.lastTime
-    let count = dt / timeStep
-    anim.state.lastTime = t - (count mod 1.0) * timeStep
-    if count <= 0: continue
 
-    var runningLength = anim.frames.len + max(0, anim.frameWait + anim.state.runningWait)
-    if anim.pingPong:
-      runningLength += anim.frames.len + anim.pingPongWait
-    anim.state.runningFrame += count.int
+    let runningLength = anim.frames.len + anim.frameWait + anim.pingPong.ord * (anim.frames.len + anim.pingPongWait)
 
-    if anim.state.runningFrame >= runningLength:
-      anim.state.runningFrame = anim.state.runningFrame mod runningLength
-      anim.state.runningWait = rand(-anim.randomWait .. anim.randomWait)
+    let runningFrame = int floor((t mod (runningLength / anim.speed)) * anim.speed.float)
+    # let runningFrame = int(t * anim.speed.float) mod runningLength
 
-    if not anim.pingPong:
-      anim.state.currentFrame = min(anim.state.runningFrame, anim.frames.len - 1)
-    else:
-      if anim.state.runningFrame < anim.frames.len:
-        anim.state.currentFrame = anim.state.runningFrame
-      elif anim.state.runningFrame >= anim.frames.len + anim.pingPongWait and anim.state.runningFrame < anim.frames.len*2 + anim.pingPongWait:
-        anim.state.currentFrame = max(0, anim.frames.len * 2 + anim.pingPongWait - 1 - anim.state.runningFrame)
+    anim.state.currentFrame = min(runningFrame, anim.frames.len - 1)
+    if anim.pingPong and runningFrame >= anim.frames.len + anim.pingPongWait:
+      if runningFrame < anim.frames.len*2 + anim.pingPongWait:
+        anim.state.currentFrame = max(0, anim.frames.len * 2 + anim.pingPongWait - 1 - runningFrame)
+      else:
+        anim.state.currentFrame = 0
     if prevFrame != anim.state.currentFrame:
       result = true
 
 proc calculateAnimTile*(self: Level; animId: uint16; hflipped: bool = false; vflipped: bool = false; counter: int = 0): Tile =
   if counter > 10: return # limit 10 recursions
   let anim = self.anims[animId]
+  if anim.frames.len == 0: return
   result = anim.frames[anim.state.currentFrame]
   if result.animated:
     result = self.calculateAnimTile(result.tileId, bool result.hflipped.ord xor hflipped.ord, bool result.vflipped.ord xor vflipped.ord, counter + 1)
