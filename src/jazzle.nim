@@ -1,5 +1,5 @@
 
-import raylib, rlgl, jazzle/raygui
+import raylib, rlgl, raygui
 import jazzle/tileset
 import jazzle/level
 
@@ -32,7 +32,7 @@ var animsUpdated = false
 var mouseUpdated = false
 var lastMousePos = Vector2()
 
-var scrollParallaxPos = Rectangle(x: 334, y: 20, width: 1, height: 1)
+var scrollParallaxPos = Rectangle(x: 335, y: 20, width: 1, height: 1)
 var scrollParallaxView = Rectangle()
 var scrollParallax = Vector2()
 
@@ -75,7 +75,7 @@ proc draw() =
   beginDrawing()
   if animsUpdated:
     animsUpdated = false
-  clearBackground(getColor(GuiGetStyle(GuiControl.DEFAULT.cint, BACKGROUND_COLOR.cint).uint32))
+  clearBackground(getColor(guiGetStyle(GuiControl.Default, BackgroundColor.cint).uint32))
 
   let tilesetRec = Rectangle(x: 0, y: 0, width: float32 tilesetIndex10Texture.width * 32, height: float32 tilesetIndex10Texture.height * 32)
 
@@ -87,10 +87,10 @@ proc draw() =
 
   var mouseCell = Vector2()
 
-  discard GuiScrollPanel(scrollTilesetPos, "Tileset".cstring, tilesetRec, scrollTileset.addr, scrollTilesetView.addr)
+  discard guiScrollPanel(scrollTilesetPos, "Tileset".cstring, tilesetRec, scrollTileset, scrollTilesetView)
   scissorMode(scrollTilesetView.x.int32, scrollTilesetView.y.int32, scrollTilesetView.width.int32, scrollTilesetView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-    discard GuiGrid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), nil, 32*5, 5, mouseCell.addr)
+    discard guiGrid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), nil, 32*5, 5, mouseCell)
     drawTiles(tilesetIndex10Texture, Rectangle(
       x: scrollTilesetView.x + scrollTileset.x,
       y: scrollTilesetView.y + scrollTileset.y,
@@ -103,12 +103,12 @@ proc draw() =
   scrollParallaxPos.width = getRenderWidth().float - scrollParallaxPos.x
   scrollParallaxPos.height = getRenderHeight().float - scrollParallaxPos.y
 
-  discard GuiScrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax.addr, scrollParallaxView.addr)
+  discard guiScrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax, scrollParallaxView)
   scissorMode(scrollParallaxView.x.int32, scrollParallaxView.y.int32, scrollParallaxView.width.int32, scrollParallaxView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
     for i in countdown(layerTextures.len - 1, 0):
       if i == 3:
-        discard GuiGrid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), nil, 32*4, 4, mouseCell.addr)
+        discard guiGrid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), nil, 32*4, 4, mouseCell)
       template layerTexture: Texture2D = layerTextures[i]
       drawTiles(layerTexture, Rectangle(
         x: float32 scrollParallaxView.x.int + scrollParallax.x.int * currentLevel.layers[i].speedX div 65536,
@@ -265,7 +265,7 @@ proc main =
   for anim in currentLevel.anims.mitems:
     anim.state.lastTime = getTime()
 
-  GuiLoadStyleDark()
+  # guiLoadStyleJungle()
 
   when defined(emscripten):
     emscriptenSetMainLoop(updateDrawFrame, 0, 1)
