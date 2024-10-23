@@ -21,11 +21,13 @@ when defined(emscripten):
     --clang.cpp.exe:emcc
     --clang.cpp.linkerexe:emcc
   --mm:orc
-  --threads:on
+  --threads:off
   --panics:on
   --define:noSignalHandler
   --passL:"-sSTACK_SIZE=1mb"
-  --passL:"-sALLOW_MEMORY_GROWTH"
+  --passL:"-sALLOW_MEMORY_GROWTH=1"
+  #--passL:"-s INITIAL_MEMORY=33554432" # 32MB
+  #--passL:"-s MAXIMUM_MEMORY=1073741824" # 1GB
   --passL:"-o build/index.html"
   # Use raylib/src/shell.html or raylib/src/minshell.html
   --passL:"--shell-file tests/minshell.html"
