@@ -42,6 +42,10 @@ var scrollTilesetPos = Rectangle(x: 0, y: 20, width: 334, height: 1)
 var scrollTilesetView = Rectangle()
 var scrollTileset = Vector2()
 
+var scrollAnimPos = Rectangle(x: 0, y: 20, width: 334, height: 1)
+var scrollAnimView = Rectangle()
+var scrollAnim = Vector2()
+
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
 
@@ -126,9 +130,14 @@ proc draw() =
   clearBackground(getColor(guiGetStyle(GuiControl.Default, BackgroundColor.cint).uint32))
 
   let tilesetRec = Rectangle(x: 0, y: 0, width: float32 tilesetIndex10Texture.width * 32, height: float32 tilesetIndex10Texture.height * 32)
+  let animRec = Rectangle(x: 0, y: 0, width: float32 animGrid.width * 32, height: float32 animGrid.height * 32)
+  let parallaxRec = Rectangle(x: 0, y: 0, width: layerTextures[3].width.float32*32, height: layerTextures[3].height.float32*32)
 
-
-  scrollTilesetPos.height = getRenderHeight().float - scrollTilesetPos.y - 128
+  scrollAnimPos.height = 200
+  scrollAnimPos.y = getRenderHeight().float - scrollAnimPos.height
+  scrollTilesetPos.height = getRenderHeight().float - scrollAnimPos.height - 19
+  scrollParallaxPos.width = getRenderWidth().float - scrollParallaxPos.x
+  scrollParallaxPos.height = getRenderHeight().float - scrollParallaxPos.y
 
   var mouseCell = Vector2()
 
@@ -137,15 +146,14 @@ proc draw() =
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
     discard guiGrid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), nil, 32*5, 5, mouseCell)
     shaderMode(shader):
-      drawTiles(tilesetIndex10Texture, Vector2(
-        x: scrollTileset.x,
-        y: scrollTileset.y
-      ), scrollTilesetView)
+      drawTiles(tilesetIndex10Texture, scrollTileset, scrollTilesetView)
 
-  let parallaxRec = Rectangle(x: 0, y: 0, width: layerTextures[3].width.float32*32, height: layerTextures[3].height.float32*32)
-
-  scrollParallaxPos.width = getRenderWidth().float - scrollParallaxPos.x
-  scrollParallaxPos.height = getRenderHeight().float - scrollParallaxPos.y
+  discard guiScrollPanel(scrollAnimPos, "Animations".cstring, animRec, scrollAnim, scrollAnimView)
+  scissorMode(scrollAnimView.x.int32, scrollAnimView.y.int32, scrollAnimView.width.int32, scrollAnimView.height.int32):
+    clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
+    discard guiGrid(Rectangle(x: scrollAnimView.x + scrollAnim.x, y: scrollAnimView.y + scrollAnim.y, width: animRec.width, height: animRec.height), nil, 32*5, 5, mouseCell)
+    shaderMode(shader):
+      drawTiles(animGrid, scrollAnim, scrollAnimView)
 
   discard guiScrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax, scrollParallaxView)
   scissorMode(scrollParallaxView.x.int32, scrollParallaxView.y.int32, scrollParallaxView.width.int32, scrollParallaxView.height.int32):
@@ -167,9 +175,6 @@ proc draw() =
       #   width: 640,
       #   height: 480
       # ), 1, White)
-
-  shaderMode(shader):
-    drawTiles(animGrid, Vector2(), Rectangle(x: 0, y: float32 getRenderHeight()-animGrid.height*32, width: float32 animGrid.width*32, height: float32 animGrid.height*32))
 
   # discard GuiButton(Rectangle(x: 25, y: 255, width: 125, height: 30), GuiIconText(ICON_FILE_SAVE.cint, "Save File".cstring))
   # let mbox = GuiMessageBox(Rectangle(x: 85, y: 70, width: 250, height: 100), "#191#Message Box", "Hi! This is a message!", "Nice;Cool")
@@ -210,9 +215,12 @@ proc main =
   tilesetMapLoc = shader.getShaderLocation("texture3")
   layerSizeLoc = shader.getShaderLocation("layerSize")
 
-  beginDrawing()
-  drawText("Loading...", getRenderWidth() div 2 - measureText("Loading...", 96) div 2, getRenderHeight() div 2 - 96 div 2, 96, Gold)
-  endDrawing()
+  block:
+    beginDrawing()
+    drawText("Loading...", getRenderWidth() div 2 - measureText("Loading...", 96) div 2, getRenderHeight() div 2 + 96 div 2, 96, Gold)
+    let icon = loadTexture("assets/icon.png")
+    drawTexture(icon, getRenderWidth() div 2 - icon.width div 2, getRenderHeight() div 2 - icon.height + 30, White)
+    endDrawing()
 
   currentLevel = Level()
   if currentLevel.load(levelFile):
@@ -273,7 +281,7 @@ proc main =
         if tileId == 0: continue
         let transOffset = currentTileset.tileOffsets[i].transOffset
         tilesetMapData[i] = uint16 i
-        let alpha = if currentLevel.tileTypes[i] == Translucent: 127'u8 else: 255'u8
+        let alpha = if currentLevel.tileTypes[i] == Translucent: 180'u8 else: 255'u8
         for j in 0..<1024:
           let x = (i mod 64) * 32 + (j mod 32)
           let y = (i div 64) * 32 + (j div 32)
