@@ -4,13 +4,16 @@ import jazzle/tileset
 import jazzle/level
 
 const
-  screenWidth = 800
-  screenHeight = 600
+  screenWidth = 1280
+  screenHeight = 720
+  levelFile = "assets/Tube2.j2l"
+  tileShaderFs = staticRead("jazzle/shaders/tile.fs")
 
 type
   GrayAlpha {.packed.} = object
     gray: uint8
     alpha: uint8
+
 
 var lastCurrentMonitor: int32 = 0
 var currentTileset: Tileset
@@ -27,7 +30,6 @@ var paletteLoc: ShaderLocation
 var tilesetImageLoc: ShaderLocation
 var layerSizeLoc: ShaderLocation
 var tilesetMapLoc: ShaderLocation
-var camera: Camera2D
 var animsUpdated = true
 var mouseUpdated = true
 var lastMousePos = Vector2()
@@ -43,11 +45,62 @@ var scrollTileset = Vector2()
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
 
-proc drawTiles(texture: Texture2D; destRect: Rectangle) =
-  let layerSize = Vector2(x: texture.width.float, y: texture.height.float)
-  shader.setShaderValue(layerSizeLoc, layerSize)
-  drawTexture(texture, Rectangle(x: 0, y: 0, width: layerSize.x, height: layerSize.y), destRect, Vector2(), 0, White)
+proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileWidth: bool = false; tileHeight: bool = false) =
+  if texture.id == 0: return
 
+  let tint = White
+
+  # texture size
+  let width = texture.width.float
+  let height = texture.height.float
+
+  # quad corner vertices
+  var left = viewRect.x
+  var top = viewRect.y
+  var right = viewRect.x + viewRect.width
+  var bottom = viewRect.y + viewRect.height
+
+  var source = Rectangle(
+    x: -position.x / 32,
+    y: -position.y / 32,
+    width: viewRect.width / 32,
+    height: viewRect.height / 32
+  )
+
+  if not tileWidth:
+    left = max(viewRect.x, viewRect.x + position.x)
+    right = min(viewRect.x + viewRect.width, viewRect.x + position.x + width * 32)
+    source.x = max(0, source.x)
+    source.width = (right - left) / 32
+  if not tileHeight:
+    top = max(viewRect.y, viewRect.y + position.y)
+    bottom = min(viewRect.y + viewRect.height, viewRect.y + position.y + height * 32)
+    source.y = max(0, source.y)
+    source.height = (bottom - top) / 32
+
+  shader.setShaderValue(layerSizeLoc, Vector2(x: width, y: height))
+
+  rlgl.setTexture(texture.id)
+  rlgl.drawMode(Quads):
+    rlgl.color4ub(tint.r, tint.g, tint.b, tint.a)
+    rlgl.normal3f(0.0, 0.0, 1.0) # Normal vector pointing towards viewer
+
+    # Top-left corner for texture and quad
+    rlgl.texCoord2f(source.x/width, source.y/height);
+    rlgl.vertex2f(left, top)
+
+    # Bottom-left corner for texture and quad
+    rlgl.texCoord2f(source.x/width, (source.y + source.height)/height)
+    rlgl.vertex2f(left, bottom)
+
+    # Bottom-right corner for texture and quad
+    rlgl.texCoord2f((source.x + source.width)/width, (source.y + source.height)/height)
+    rlgl.vertex2f(right, bottom)
+
+    # Top-right corner for texture and quad
+    rlgl.texCoord2f((source.x + source.width)/width, source.y/height)
+    rlgl.vertex2f(right, top)
+  rlgl.setTexture(0)
 
 proc update() =
   let t = getTime()
@@ -55,9 +108,6 @@ proc update() =
   if lastMousePos != mousePos:
     mouseUpdated = true
   lastMousePos = mousePos
-  camera.zoom = 1.0
-  #camera.offset.x = -mousePos.x
-  #camera.offset.y = -mousePos.y
 
   animsUpdated = currentLevel.updateAnims(t) or animsUpdated
 
@@ -87,12 +137,10 @@ proc draw() =
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
     discard guiGrid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), nil, 32*5, 5, mouseCell)
     shaderMode(shader):
-      drawTiles(tilesetIndex10Texture, Rectangle(
-        x: scrollTilesetView.x + scrollTileset.x,
-        y: scrollTilesetView.y + scrollTileset.y,
-        width: tilesetRec.width,
-        height: tilesetRec.height
-      ))
+      drawTiles(tilesetIndex10Texture, Vector2(
+        x: scrollTileset.x,
+        y: scrollTileset.y
+      ), scrollTilesetView)
 
   let parallaxRec = Rectangle(x: 0, y: 0, width: layerTextures[3].width.float32*32, height: layerTextures[3].height.float32*32)
 
@@ -106,26 +154,12 @@ proc draw() =
       if i == 3:
         discard guiGrid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), nil, 32*4, 4, mouseCell)
       let layer = currentLevel.layers[i].addr
-      let layerTexture = layerTextures[i].addr
-      let w = layerTexture.width * 32
-      let h = layerTexture.height * 32
-
-      var rect = Rectangle(width: float32 w, height: float32 h)
 
       shaderMode(shader):
-        var x = scrollParallax.x.int * currentLevel.layers[i].speedX div 65536
-        while layer.properties.tileWidth and x > 0: x -= w # step back outside left edge
-        while x < scrollParallaxView.width.int: # until right edge
-          var y = scrollParallax.y.int * currentLevel.layers[i].speedY div 65536
-          while layer.properties.tileHeight and y > 0: y -= h # step back outside top edge
-          while y < scrollParallaxView.height.int: # until bottom edge
-            rect.x = float32 scrollParallaxView.x.int + x
-            rect.y = float32 scrollParallaxView.y.int + y
-            drawTiles(layerTexture[], rect)
-            if not layer.properties.tileHeight: break
-            y += h
-          if not layer.properties.tileWidth: break
-          x += w
+        drawTiles(layerTextures[i], Vector2(
+          x: scrollParallax.x * currentLevel.layers[i].speedX.float / 65536,
+          y: scrollParallax.y * currentLevel.layers[i].speedY.float / 65536
+        ), scrollParallaxView, layer.properties.tileWidth, layer.properties.tileHeight)
 
       # drawRectangleLines(Rectangle(
       #   x: scrollParallaxView.x + scrollParallaxView.width / 2 - 640 / 2,
@@ -135,7 +169,7 @@ proc draw() =
       # ), 1, White)
 
   shaderMode(shader):
-    drawTiles(animGrid, Rectangle(x: 0, y: float32 getRenderHeight()-animGrid.height*32, width: float32 animGrid.width*32, height: float32 animGrid.height*32))
+    drawTiles(animGrid, Vector2(), Rectangle(x: 0, y: float32 getRenderHeight()-animGrid.height*32, width: float32 animGrid.width*32, height: float32 animGrid.height*32))
 
   # discard GuiButton(Rectangle(x: 25, y: 255, width: 125, height: 30), GuiIconText(ICON_FILE_SAVE.cint, "Save File".cstring))
   # let mbox = GuiMessageBox(Rectangle(x: 85, y: 70, width: 250, height: 100), "#191#Message Box", "Hi! This is a message!", "Nice;Cool")
@@ -159,70 +193,29 @@ proc main =
   initWindow(screenWidth, screenHeight, "JazzLE")
   defer: closeWindow()
   setExitKey(KeyboardKey.Null)
-  setWindowMinSize(320, 100)
+  setWindowMinSize(320, 240)
   # maximizeWindow()
 
-  const tileShaderFs = staticRead("jazzle/shaders/tile.fs")
-  let tilesetData = "assets/TubeNite.j2t"
-  let levelData = "assets/Tube2.j2l"
+  let shaderPrefix = case rlgl.getVersion():
+  of OpenGl43, OpenGl33: "#version 330\nout vec4 finalColor;\n"
+  of OpenGlEs20: "#version 100\nprecision mediump float;\n#define texture texture2D\n#define finalColor gl_FragColor\n#define in varying\n"
+  of OpenGlEs30: "#version 300 es\nprecision mediump float;\nout vec4 finalColor;\n"
+  else: ""
 
-  currentTileset = Tileset()
-  currentTileset.load(tilesetData)
+  echo rlgl.getVersion()
 
-  const format = UncompressedGrayAlpha
-  const width = 64 * 32
-  const height = 64 * 32
-  var imageData = newSeq[GrayAlpha](width * height)
-  let tileset10Height = (currentTileset.numTiles.int + 9) div 10
-  tilesetMapData.setLen(max(10 * tileset10Height, 64 * 64))
+  shader = loadShaderFromMemory("", shaderPrefix & tileShaderFs)
+  paletteLoc = shader.getShaderLocation("texture1")
+  tilesetImageLoc = shader.getShaderLocation("texture2")
+  tilesetMapLoc = shader.getShaderLocation("texture3")
+  layerSizeLoc = shader.getShaderLocation("layerSize")
 
-  for i in 1..<currentTileset.numTiles.int:
-    let tileId = currentTileset.tileOffsets[i].image
-    if tileId == 0: continue
-    let transOffset = currentTileset.tileOffsets[i].transOffset
-    tilesetMapData[i] = uint16 i
-    for j in 0..<1024:
-      let x = (i mod 64) * 32 + (j mod 32)
-      let y = (i div 64) * 32 + (j div 32)
-      let index = x + y * width
-      imageData[index].gray = currentTileset.tileImage[tileId][j]
-      imageData[index].alpha = if currentTileset.tileTransMask[transOffset][j]: 255'u8 else: 0'u8
-
-  tilesetImage = Texture2D(
-    id: rlgl.loadTexture(imageData[0].addr, width.int32, height.int32, format.int32, 1),
-    width: width.int32,
-    height: height.int32,
-    mipmaps: 1,
-    format: format
-  )
-  imageData.reset()
-
-  tilesetIndex10Texture = Texture2D(
-    id: rlgl.loadTexture(tilesetMapData[0].addr, 10, tileset10Height.int32, UncompressedGrayAlpha.int32, 1),
-    width: 10,
-    height: tileset10Height.int32,
-    mipmaps: 1,
-    format: UncompressedGrayAlpha
-  )
-
-  tilesetIndex64Texture = Texture2D(
-    id: rlgl.loadTexture(tilesetMapData[0].addr, 64, 64, UncompressedGrayAlpha.int32, 1),
-    width: 64,
-    height: 64,
-    mipmaps: 1,
-    format: UncompressedGrayAlpha
-  )
-
-  paletteTexture = Texture2D(
-    id: rlgl.loadTexture(currentTileset.palette[0].addr, 256.int32, 1.int32, UncompressedR8g8b8a8.int32, 1),
-    width: 256.int32,
-    height: 1.int32,
-    mipmaps: 1,
-    format: UncompressedR8g8b8a8
-  )
+  beginDrawing()
+  drawText("Loading...", getRenderWidth() div 2 - measureText("Loading...", 96) div 2, getRenderHeight() div 2 - 96 div 2, 96, Gold)
+  endDrawing()
 
   currentLevel = Level()
-  if currentLevel.load(levelData):
+  if currentLevel.load(levelFile):
     layerTextures.setLen(8)
     for i in 0 ..< 8:
       let layer = currentLevel.layers[i].addr
@@ -266,19 +259,68 @@ proc main =
     animGridData.reset()
     animsUpdated = true
 
-  let shaderPrefix = case rlgl.getVersion():
-  of OpenGl43, OpenGl33: "#version 330\nout vec4 finalColor;\n"
-  of OpenGlEs20: "#version 100\nprecision mediump float;\n#define texture texture2D\n#define finalColor gl_FragColor\n#define in varying\n"
-  of OpenGlEs30: "#version 300 es\nprecision mediump float;\nout vec4 finalColor;\n"
-  else: ""
+    currentTileset = Tileset()
+    if currentTileset.load("assets/" & currentLevel.tileset):
+      const format = UncompressedGrayAlpha
+      const width = 64 * 32
+      const height = 64 * 32
+      var imageData = newSeq[GrayAlpha](width * height)
+      let tileset10Height = (currentTileset.numTiles.int + 9) div 10
+      tilesetMapData.setLen(max(10 * tileset10Height, 64 * 64))
 
-  echo rlgl.getVersion()
+      for i in 1..<currentTileset.numTiles.int:
+        let tileId = currentTileset.tileOffsets[i].image
+        if tileId == 0: continue
+        let transOffset = currentTileset.tileOffsets[i].transOffset
+        tilesetMapData[i] = uint16 i
+        let alpha = if currentLevel.tileTypes[i] == Translucent: 127'u8 else: 255'u8
+        for j in 0..<1024:
+          let x = (i mod 64) * 32 + (j mod 32)
+          let y = (i div 64) * 32 + (j div 32)
+          let index = x + y * width
+          imageData[index].gray = currentTileset.tileImage[tileId][j]
+          imageData[index].alpha = if currentTileset.tileTransMask[transOffset][j]: alpha else: 0'u8
 
-  shader = loadShaderFromMemory("", shaderPrefix & tileShaderFs)
-  paletteLoc = shader.getShaderLocation("texture1")
-  tilesetImageLoc = shader.getShaderLocation("texture2")
-  tilesetMapLoc = shader.getShaderLocation("texture3")
-  layerSizeLoc = shader.getShaderLocation("layerSize")
+      tilesetImage = Texture2D(
+        id: rlgl.loadTexture(imageData[0].addr, width.int32, height.int32, format.int32, 1),
+        width: width.int32,
+        height: height.int32,
+        mipmaps: 1,
+        format: format
+      )
+      tilesetImage.setTextureFilter(Point)
+      tilesetImage.setTextureWrap(Clamp)
+      imageData.reset()
+
+      tilesetIndex10Texture = Texture2D(
+        id: rlgl.loadTexture(tilesetMapData[0].addr, 10, tileset10Height.int32, UncompressedGrayAlpha.int32, 1),
+        width: 10,
+        height: tileset10Height.int32,
+        mipmaps: 1,
+        format: UncompressedGrayAlpha
+      )
+      tilesetIndex10Texture.setTextureFilter(Point)
+      tilesetIndex10Texture.setTextureWrap(Clamp)
+
+      tilesetIndex64Texture = Texture2D(
+        id: rlgl.loadTexture(tilesetMapData[0].addr, 64, 64, UncompressedGrayAlpha.int32, 1),
+        width: 64,
+        height: 64,
+        mipmaps: 1,
+        format: UncompressedGrayAlpha
+      )
+      tilesetIndex64Texture.setTextureFilter(Point)
+      tilesetIndex64Texture.setTextureWrap(Clamp)
+
+      paletteTexture = Texture2D(
+        id: rlgl.loadTexture(currentTileset.palette[0].addr, 256, 1, UncompressedR8g8b8a8.int32, 1),
+        width: 256.int32,
+        height: 1.int32,
+        mipmaps: 1,
+        format: UncompressedR8g8b8a8
+      )
+      paletteTexture.setTextureFilter(Point)
+      paletteTexture.setTextureWrap(Clamp)
 
   shader.setShaderValueTexture(paletteLoc, paletteTexture)
   shader.setShaderValueTexture(tilesetImageLoc, tilesetImage)

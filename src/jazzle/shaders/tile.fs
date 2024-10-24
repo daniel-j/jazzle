@@ -16,6 +16,7 @@ void main() {
   float tileId = floor(tileTex.x + tileTex.y * 256.0 + 0.5);
   float flips1 = floor(tileId / 4096.0);
   tileId = mod(tileId, 4096.0);
+  if (tileId == 0.0) {discard;}
   vec2 tileIdCoords = vec2(mod(tileId, 64.0), floor(tileId / 64.0));
 
   // resolve the base tile from tileset (may be flipped again, if inside an animation)
@@ -23,6 +24,7 @@ void main() {
   tileId = floor(tileMapTex.x + tileMapTex.y * 256.0 + 0.5);
   float flips2 = floor(tileId / 4096.0);
   tileId = mod(tileId, 4096.0);
+  if (tileId == 0.0) {discard;}
   vec2 tileMapCoords = vec2(mod(float(tileId), 64.0), floor(tileId / 64.0));
 
   // pixel coordinates inside tile (0.0 - 1.0)

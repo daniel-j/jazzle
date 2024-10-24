@@ -1,7 +1,7 @@
 
 when defined(emscripten):
-  --define:GraphicsApiOpenGlEs2
-  #--define:GraphicsApiOpenGlEs3
+  #--define:GraphicsApiOpenGlEs2
+  --define:GraphicsApiOpenGlEs3
   --define:NaylibWebResources
   switch("define", "NaylibWebResourcesPath=assets")
   #switch("define", "NaylibWebPthreadPoolSize=2")

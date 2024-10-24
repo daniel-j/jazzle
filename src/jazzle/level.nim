@@ -56,7 +56,7 @@ type
   WordId* = uint16
   WordTiles* = array[4, Tile]
 
-  TileType* = enum
+  TileType*  {.size: sizeof(uint8).} = enum
     Default = 0
     Translucent = 1
     Opaque = 2
@@ -132,7 +132,7 @@ type
     helpString*: array[16, string]
 
     tilesetEvents*: Table[int, Event]
-    tileTypes*: Table[int, TileType]
+    tileTypes*: array[4096, TileType]
     isEachTileFlipped*: HashSet[int]
     isEachTileUsed*: Table[int, uint8] # unused?
 
@@ -279,13 +279,12 @@ proc loadInfo(self: var Level, s: Stream) =
     if s.readBool():
       self.isEachTileFlipped.incl(i)
 
-  self.tileTypes.clear()
   for i in 0..<self.maxTiles.int:
     let val = s.readUint8()
-    if val == 1:
-      self.tileTypes[i] = Translucent
-    elif val == 4:
-      self.tileTypes[i] = Caption
+    self.tileTypes[i] = case val:
+      of 1: Translucent
+      of 4: Caption
+      else: Default
 
   for i in 0..<self.maxTiles.int:
     let val = s.readUint8()
@@ -464,7 +463,7 @@ proc debug*(self: Level) =
 
   echo "loading tileset"
   var tileset = Tileset()
-  tileset.load(self.tileset)
+  doAssert tileset.load(self.tileset)
 
   if self.animCount.int > 0:
     var highestFrame = 0
