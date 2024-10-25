@@ -267,6 +267,9 @@ proc main =
     animGridData.reset()
     animsUpdated = true
 
+    scrollParallax.x = -currentLevel.lastHorizontalOffset.float
+    scrollParallax.y = -currentLevel.lastVerticalOffset.float
+
     currentTileset = Tileset()
     if currentTileset.load("assets/" & currentLevel.tileset):
       const format = UncompressedGrayAlpha
