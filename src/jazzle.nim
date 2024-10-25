@@ -2,6 +2,7 @@
 import raylib, rlgl, raygui
 import jazzle/tileset
 import jazzle/level
+import std/math
 
 const
   screenWidth = 1280
@@ -131,7 +132,6 @@ proc draw() =
 
   let tilesetRec = Rectangle(x: 0, y: 0, width: float32 tilesetIndex10Texture.width * 32, height: float32 tilesetIndex10Texture.height * 32)
   let animRec = Rectangle(x: 0, y: 0, width: float32 animGrid.width * 32, height: float32 animGrid.height * 32)
-  let parallaxRec = Rectangle(x: 0, y: 0, width: layerTextures[3].width.float32*32, height: layerTextures[3].height.float32*32)
 
   scrollAnimPos.height = 200
   scrollAnimPos.y = getRenderHeight().float - scrollAnimPos.height
@@ -155,6 +155,8 @@ proc draw() =
     shaderMode(shader):
       drawTiles(animGrid, scrollAnim, scrollAnimView)
 
+  let viewSize = Vector2(x: min(800, scrollParallaxView.width), y: min(600, scrollParallaxView.height))
+  let parallaxRec = Rectangle(x: 0, y: 0, width: layerTextures[3].width.float32*32 + scrollParallaxView.width - viewSize.x, height: layerTextures[3].height.float32*32 + scrollParallaxView.height - viewSize.y)
   discard guiScrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax, scrollParallaxView)
   scissorMode(scrollParallaxView.x.int32, scrollParallaxView.y.int32, scrollParallaxView.width.int32, scrollParallaxView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
@@ -163,18 +165,32 @@ proc draw() =
         discard guiGrid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), nil, 32*4, 4, mouseCell)
       let layer = currentLevel.layers[i].addr
 
-      shaderMode(shader):
-        drawTiles(layerTextures[i], Vector2(
-          x: scrollParallax.x * currentLevel.layers[i].speedX.float / 65536,
-          y: scrollParallax.y * currentLevel.layers[i].speedY.float / 65536
-        ), scrollParallaxView, layer.properties.tileWidth, layer.properties.tileHeight)
+      let alignment = Vector2(
+        x: (viewSize.x - 320) / 2,
+        y: (viewSize.y - 200) / 2
+      )
 
-      # drawRectangleLines(Rectangle(
-      #   x: scrollParallaxView.x + scrollParallaxView.width / 2 - 640 / 2,
-      #   y: scrollParallaxView.y + scrollParallaxView.height / 2 - 480 / 2,
-      #   width: 640,
-      #   height: 480
-      # ), 1, White)
+      let speed = Vector2(
+        x: layer.speedX / 65536,
+        y: layer.speedY / 65536
+      )
+      let heightMultiplier = (layer.properties.limitVisibleRegion and not layer.properties.tileHeight).float + 1
+      var pos = Vector2(
+        x: speed.x * (scrollParallax.x - alignment.x) + alignment.x,
+        y: speed.y * (scrollParallax.y - alignment.y) + alignment.y * heightMultiplier
+      )
+      pos.x = floor(pos.x + scrollParallaxView.width / 2 - viewSize.x / 2)
+      pos.y = floor(pos.y + scrollParallaxView.height / 2 - viewSize.y / 2)
+
+      shaderMode(shader):
+        drawTiles(layerTextures[i], pos, scrollParallaxView, layer.properties.tileWidth, layer.properties.tileHeight)
+
+      drawRectangleLines(Rectangle(
+        x: scrollParallaxView.x + scrollParallaxView.width / 2 - viewSize.x / 2 - 1,
+        y: scrollParallaxView.y + scrollParallaxView.height / 2 - viewSize.y / 2 - 1,
+        width: viewSize.x + 2,
+        height: viewSize.y + 2
+      ), 1, White)
 
   # discard GuiButton(Rectangle(x: 25, y: 255, width: 125, height: 30), GuiIconText(ICON_FILE_SAVE.cint, "Save File".cstring))
   # let mbox = GuiMessageBox(Rectangle(x: 85, y: 70, width: 250, height: 100), "#191#Message Box", "Hi! This is a message!", "Nice;Cool")
