@@ -1,11 +1,12 @@
 
 when defined(emscripten):
+  --define:release
   #--define:GraphicsApiOpenGlEs2
   --define:GraphicsApiOpenGlEs3
   --define:NaylibWebResources
   switch("define", "NaylibWebResourcesPath=assets")
-  #switch("define", "NaylibWebPthreadPoolSize=2")
-  #--define:NaylibWebAsyncify
+  switch("define", "NaylibWebPthreadPoolSize=2")
+  --define:NaylibWebAsyncify
   --os:linux
   --cpu:wasm32
   --cc:clang
@@ -21,15 +22,14 @@ when defined(emscripten):
     --clang.cpp.exe:emcc
     --clang.cpp.linkerexe:emcc
   --mm:orc
-  --threads:off
+  --threads:on
   --panics:on
   --define:noSignalHandler
-  --passL:"-sSTACK_SIZE=1mb"
-  --passL:"-sALLOW_MEMORY_GROWTH=1"
-  #--passL:"-s INITIAL_MEMORY=33554432" # 32MB
-  #--passL:"-s MAXIMUM_MEMORY=1073741824" # 1GB
+  --passL:"-sSTACK_SIZE=4mb"
+  #--passL:"-sALLOW_MEMORY_GROWTH=1"
+  --passL:"-s INITIAL_MEMORY=128mb"
+  #--passL:"-s MAXIMUM_MEMORY=500mb"
   --passL:"-o build/index.html"
-  # Use raylib/src/shell.html or raylib/src/minshell.html
   --passL:"--shell-file tests/minshell.html"
   when not defined(release):
     --passL:"-gsource-map"
