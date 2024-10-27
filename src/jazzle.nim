@@ -157,6 +157,11 @@ proc draw() =
 
   let viewSize = Vector2(x: min(800, scrollParallaxView.width), y: min(600, scrollParallaxView.height))
   let parallaxRec = Rectangle(x: 0, y: 0, width: layerTextures[3].width.float32*32 + scrollParallaxView.width - viewSize.x, height: layerTextures[3].height.float32*32 + scrollParallaxView.height - viewSize.y)
+  let alignment = Vector2(
+    x: (viewSize.x - 320) / 2,
+    y: (viewSize.y - 200) / 2
+  )
+
   discard guiScrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax, scrollParallaxView)
   scissorMode(scrollParallaxView.x.int32, scrollParallaxView.y.int32, scrollParallaxView.width.int32, scrollParallaxView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
@@ -164,11 +169,6 @@ proc draw() =
       if i == 3:
         discard guiGrid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), nil, 32*4, 4, mouseCell)
       let layer = currentLevel.layers[i].addr
-
-      let alignment = Vector2(
-        x: (viewSize.x - 320) / 2,
-        y: (viewSize.y - 200) / 2
-      )
 
       let speed = Vector2(
         x: layer.speedX / 65536,

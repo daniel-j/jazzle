@@ -17,6 +17,7 @@ const SecurityStringMLLE = 0xBACABEEF'u32
 const SecurityStringInsecure = 0x00000000'u32
 const SecurityNoPassword = 0x00BABE'u32
 const LayerCount* = 8
+const SpriteLayerId* = 3
 
 type
   StreamKind = enum
