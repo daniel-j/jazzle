@@ -9,8 +9,10 @@ uniform sampler2D texture2; // tileset images 2048x2048, indexed
 uniform sampler2D texture3; // tileset mapping 64x64, contains map to static tileIds
 uniform vec2 layerSize;
 
+vec4 selection = vec4(0, 0, 0, 0);
 
 void main() {
+  vec2 texCoord = fragTexCoord * layerSize;
   // load tileId from layer (it may be an animated tile and/or flipped)
   vec2 tileTex = texture(texture0, fragTexCoord).ra * 255.0;
   float tileId = floor(tileTex.x + tileTex.y * 256.0 + 0.5);
@@ -41,7 +43,11 @@ void main() {
   // get the palette index from palette
   vec4 tilesetTile = texture(texture2, (tileMapCoords + uv) / 64.0);
   // load color from palette
-  finalColor = texture(texture1, vec2(tilesetTile.r, 0.0)) * fragColor;
+  vec4 outColor = texture(texture1, vec2(tilesetTile.r, 0.0)) * fragColor;
+  if (texCoord.x >= selection.x && texCoord.x < selection.z && texCoord.y >= selection.y && texCoord.y < selection.w) {
+    outColor = vec4(1,1,1,1) - outColor;
+  }
   // fix alpha
-  finalColor.a = 1.0 * tilesetTile.a;
+  outColor.a = 1.0 * tilesetTile.a;
+  finalColor = outColor;
 }
