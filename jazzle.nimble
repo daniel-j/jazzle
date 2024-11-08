@@ -12,7 +12,7 @@ backend       = "c"
 
 requires "nim >= 2.0.0"
 requires "naylib >= 24.43"
-requires "naygui >= 4.0.0"
+requires "https://github.com/planetis-m/naygui.git >= 4.5.8"
 requires "zippy >= 0.10.16"
 requires "pixie >= 5.0.7"
 requires "parseini >= 0.3.0"
@@ -20,6 +20,7 @@ requires "parseini >= 0.3.0"
 task wasm, "Compile to WASM using Emscripten":
   mkDir("assets")
   mkDir("build")
-  selfExec(backend & " -d:emscripten " & srcDir & "/jazzle")
+  mkDir("wasmcache")
+  selfExec(backend & " -d:emscripten --nimcache:wasmcache/nimcache " & srcDir & "/jazzle")
 
 

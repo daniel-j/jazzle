@@ -25,11 +25,13 @@ when defined(emscripten):
   --threads:on
   --panics:on
   --define:noSignalHandler
-  --passL:"-sSTACK_SIZE=4mb"
+  --passL:"-s STACK_SIZE=4mb"
   #--passL:"-sALLOW_MEMORY_GROWTH=1"
   --passL:"-s INITIAL_MEMORY=128mb"
   #--passL:"-s MAXIMUM_MEMORY=500mb"
   --passL:"-o build/index.html"
   --passL:"--shell-file tests/minshell.html"
+  --passC:"--cache wasmcache/emcc"
+  --passL:"--cache wasmcache/emcc"
   when not defined(release):
     --passL:"-gsource-map"

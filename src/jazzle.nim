@@ -128,7 +128,7 @@ proc update() =
 proc draw() =
   # if not animsUpdated and not mouseUpdated: return
   beginDrawing()
-  clearBackground(getColor(guiGetStyle(GuiControl.Default, BackgroundColor.cint).uint32))
+  clearBackground(getColor(guiGetStyle(GuiControl.Default, BackgroundColor).uint32))
 
   let tilesetRec = Rectangle(x: 0, y: 0, width: float32 tilesetIndex10Texture.width * 32, height: float32 tilesetIndex10Texture.height * 32)
   let animRec = Rectangle(x: 0, y: 0, width: float32 animGrid.width * 32, height: float32 animGrid.height * 32)
@@ -141,17 +141,17 @@ proc draw() =
 
   var mouseCell = Vector2()
 
-  discard guiScrollPanel(scrollTilesetPos, "Tileset".cstring, tilesetRec, scrollTileset, scrollTilesetView)
+  scrollPanel(scrollTilesetPos, "Tileset", tilesetRec, scrollTileset, scrollTilesetView)
   scissorMode(scrollTilesetView.x.int32, scrollTilesetView.y.int32, scrollTilesetView.width.int32, scrollTilesetView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-    discard guiGrid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), nil, 32*5, 5, mouseCell)
+    grid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), "", 32*5, 5, mouseCell)
     shaderMode(shader):
       drawTiles(tilesetIndex10Texture, scrollTileset, scrollTilesetView)
 
-  discard guiScrollPanel(scrollAnimPos, "Animations".cstring, animRec, scrollAnim, scrollAnimView)
+  scrollPanel(scrollAnimPos, "Animations", animRec, scrollAnim, scrollAnimView)
   scissorMode(scrollAnimView.x.int32, scrollAnimView.y.int32, scrollAnimView.width.int32, scrollAnimView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-    discard guiGrid(Rectangle(x: scrollAnimView.x + scrollAnim.x, y: scrollAnimView.y + scrollAnim.y, width: animRec.width, height: animRec.height), nil, 32*5, 5, mouseCell)
+    grid(Rectangle(x: scrollAnimView.x + scrollAnim.x, y: scrollAnimView.y + scrollAnim.y, width: animRec.width, height: animRec.height), "", 32*5, 5, mouseCell)
     shaderMode(shader):
       drawTiles(animGrid, scrollAnim, scrollAnimView)
 
@@ -162,12 +162,12 @@ proc draw() =
     y: (viewSize.y - 200) / 2
   )
 
-  discard guiScrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax, scrollParallaxView)
+  scrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax, scrollParallaxView)
   scissorMode(scrollParallaxView.x.int32, scrollParallaxView.y.int32, scrollParallaxView.width.int32, scrollParallaxView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
     for i in countdown(currentLevel.layers.len - 1, 0):
       if i == 3:
-        discard guiGrid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), nil, 32*4, 4, mouseCell)
+        grid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), "", 32*4, 4, mouseCell)
       let layer = currentLevel.layers[i].addr
 
       let speed = Vector2(
