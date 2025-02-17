@@ -12,12 +12,16 @@ import ./tileset
 
 export common, tables
 
-const SecurityStringPassworded = 0xBA00BE00'u32
-const SecurityStringMLLE = 0xBACABEEF'u32
-const SecurityStringInsecure = 0x00000000'u32
-const SecurityNoPassword = 0x00BABE'u32
-const LayerCount* = 8
-const SpriteLayerId* = 3
+const
+  J2lVersionAGA  = 0x100'u16
+  J2lVersion1_23 = 0x202'u16
+  J2lVersion1_24 = 0x203'u16
+  SecurityStringPassworded = 0xBA00BE00'u32
+  SecurityStringMLLE = 0xBACABEEF'u32
+  SecurityStringInsecure = 0x00000000'u32
+  SecurityNoPassword = 0x00BABE'u32
+  LayerCount* = 8
+  SpriteLayerId* = 3
 
 type
   StreamKind = enum
@@ -204,11 +208,6 @@ proc calculateAnimTile*(self: Level; animId: uint16; hflipped: bool = false; vfl
   result.hflipped = bool result.hflipped.ord xor hflipped.ord
   result.vflipped = bool result.vflipped.ord xor vflipped.ord
 
-proc readCStr(s: Stream; length: int): string =
-  result = s.readStr(length)
-  let pos = result.find('\0')
-  if pos != -1: result.setLen(pos)
-
 proc loadInfo(self: var Level, s: Stream) =
   # data1
   s.read(self.lastHorizontalOffset)
@@ -309,7 +308,6 @@ proc loadInfo(self: var Level, s: Stream) =
     for f, frame in anim.frames:
       anim.frames[f] = self.parseTile(rawframes[f])
 
-
   # remaining buffer of data1 is just zeroes
   s.close()
 
@@ -378,7 +376,7 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   self.reset()
 
   let copyright = s.readStr(180)
-  discard copyright
+  doAssert copyright == DataFileCopyright
   let magic = s.readStr(4)
   doAssert magic == "LEVL"
   self.passwordHash = (s.readUint8().uint32 shl 16) or (s.readUint8().uint32 shl 8) or s.readUint8().uint32
@@ -422,7 +420,6 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
     sections[kind] = newStringStream(data)
 
   doAssert compressedData.atEnd()
-  compressedData.close()
 
   # TODO: Parse MLLE data here
   # doAssert s.atEnd()

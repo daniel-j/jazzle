@@ -5,6 +5,7 @@ import std/tables
 import pixie
 import zippy
 import zippy/crc
+import ./common
 
 export tables
 
@@ -23,11 +24,6 @@ type
     fileSize*: uint32
     checksum*: uint32
     streams*: OrderedTable[string, StreamInfo]
-
-proc readCStr(s: Stream, length: int): string =
-  result = s.readStr(length)
-  let pos = result.find('\0')
-  if pos != -1: result.setLen(pos)
 
 proc loadInfo(self: var Data; s: Stream) =
   self.streams.clear()

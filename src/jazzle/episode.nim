@@ -3,6 +3,7 @@ import std/strutils
 import pixie
 import zippy
 import ./data
+import ./common
 
 type
 
@@ -23,11 +24,6 @@ type
     widthTitle*: uint32
     heightTitle*: uint32
     imageData*: array[StreamKind, string]
-
-proc readCStr(s: Stream, length: int): string =
-  result = s.readStr(length)
-  let pos = result.find('\0')
-  if pos != -1: result.setLen(pos)
 
 
 proc load*(self: var Episode; filename: string): bool =
