@@ -109,6 +109,11 @@ proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileW
 
 proc update() =
   let t = getTime()
+
+  when defined(emscripten):
+    if isWindowResized():
+      setWindowSize(getScreenWidth(), getScreenHeight())
+
   let mousePos = getMousePosition()
   if lastMousePos != mousePos:
     mouseUpdated = true
@@ -356,6 +361,7 @@ proc main =
   # guiLoadStyleJungle()
 
   when defined(emscripten):
+    setWindowSize(getScreenWidth(), getScreenHeight())
     emscriptenSetMainLoop(updateDrawFrame, 0, 1)
   else:
     # lastCurrentMonitor = getCurrentMonitor()

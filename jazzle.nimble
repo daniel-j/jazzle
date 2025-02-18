@@ -11,7 +11,7 @@ backend       = "c"
 # Dependencies
 
 requires "nim >= 2.0.0"
-requires "naylib >= 24.52.0"
+requires "naylib >= 25.4.0"
 requires "https://github.com/planetis-m/naygui.git >= 24.52.0"
 requires "zippy >= 0.10.16"
 requires "pixie >= 5.0.7"
