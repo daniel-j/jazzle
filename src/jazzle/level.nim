@@ -1,8 +1,6 @@
 import std/streams
 import std/strutils
-import std/tables
 import std/bitops
-import std/sets
 import pixie
 import zippy
 import zippy/crc
@@ -10,7 +8,7 @@ import parseini
 import ./common
 import ./tileset
 
-export common, tables
+export common
 
 const
   J2lVersionAGA  = 0x100'u16
