@@ -4,6 +4,8 @@ import jazzle/tileset
 import jazzle/level
 import std/math
 
+import ./jazzle/gui
+
 const
   screenWidth = 1280
   screenHeight = 720
@@ -47,8 +49,46 @@ var scrollAnimPos = Rectangle(x: 0, y: 20, width: 334, height: 1)
 var scrollAnimView = Rectangle()
 var scrollAnim = Vector2()
 
+type
+  MainMenuValues = enum
+    MenuNone
+    MenuFileNew
+    MenuFileOpen
+    MenuLevelProperties
+
+  MainMenu = Menu[MainMenuValues]
+
+var mainMenu = MainMenu(items: @[
+  MainMenu(
+    text: "_File",
+    width: 100,
+    items: @[
+      MainMenu(text: " _New", id: MenuFileNew),
+      MainMenu(text: "#05# _Open", id: MenuFileOpen)
+    ]
+  ),
+  MainMenu(
+    text: "_Edit",
+    width: 200,
+    items: @[
+      MainMenu(text: "#56# Level _properties", id: MenuLevelProperties)
+    ]
+  )
+])
+
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
+
+when defined(emscripten):
+  when defined(cpp):
+    {.pragma: EMSCRIPTEN_KEEPALIVE, exportc, codegenDecl: "__attribute__((used)) extern \"C\" $# $#$#".}
+  else:
+    {.pragma: EMSCRIPTEN_KEEPALIVE, exportc, codegenDecl: "__attribute__((used)) $# $#$#".}
+
+  proc browserCheckFileOpen() {.EMSCRIPTEN_KEEPALIVE.} =
+    case showMenu(mainMenu, 20):
+    of MenuFileOpen: echo "menu click open2"
+    else: echo "unknown button!"
 
 proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileWidth: bool = false; tileHeight: bool = false) =
   if texture.id == 0: return
@@ -197,11 +237,17 @@ proc draw() =
         height: viewSize.y + 2
       ), 1, White)
 
+  case showMenu(mainMenu, 20):
+  of MenuNone: discard
+  of MenuFileNew: discard
+  of MenuFileOpen: echo "menu click open1"
+  of MenuLevelProperties: discard
+
   # discard GuiButton(Rectangle(x: 25, y: 255, width: 125, height: 30), GuiIconText(ICON_FILE_SAVE.cint, "Save File".cstring))
   # let mbox = GuiMessageBox(Rectangle(x: 85, y: 70, width: 250, height: 100), "#191#Message Box", "Hi! This is a message!", "Nice;Cool")
   # if mbox != -1: echo mbox
 
-  drawText("FPS: " & $getFPS(), 5, 1, 20, Gold)
+  drawText("FPS: " & $getFPS(), getRenderWidth() - 100, 1, 20, Gold)
 
   endDrawing()
   mouseUpdated = false

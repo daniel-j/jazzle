@@ -47,6 +47,7 @@
         }
         canvas.emscripten { border: 0px none; background-color: black;}
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/show-open-file-picker@0.2.2/polyfill.min.js"></script>
     <script type='text/javascript' src="https://cdn.jsdelivr.net/gh/eligrey/FileSaver.js/dist/FileSaver.min.js"> </script>
     <script type='text/javascript'>
         function saveFileFromMEMFSToDisk(memoryFSname, localFSname)     // This can be called by C/C++ code
@@ -69,9 +70,10 @@
     </head>
     <body>
         <canvas class=emscripten id=canvas oncontextmenu=event.preventDefault() tabindex=-1></canvas>
-        <p id="output"></p>
+        <!--<p id="output"></p>-->
         <script>
             var Module = {
+                /*
                 print: (function() {
                     var element = document.getElementById('output');
                     if (element) element.value = ''; // clear browser cache
@@ -84,11 +86,20 @@
                         }
                     };
                 })(),
+                */
                 canvas: (function() {
                     var canvas = document.getElementById('canvas');
                     return canvas;
                 })()
             };
+            var inputfile = document.getElementById('inputfile');
+            Module.canvas.addEventListener('click', function () {
+                console.log("canvas click");
+                _browserCheckFileOpen();
+                /*showOpenFilePicker().then(function (files) {
+                    console.log(files);
+                });*/
+            }, false);
         </script>
         {{{ SCRIPT }}}
     </body>
