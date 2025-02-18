@@ -69,7 +69,6 @@ proc writeMaskData(s: Stream; tileMask: TileMask) =
     let k = i mod 8
     if tileMask[i]:
       mask[j].setBit(k)
-
   s.write(mask)
 
 proc readMaskJJ2Data(s: Stream): TileMask =
@@ -314,6 +313,10 @@ proc load*(tileset: var Tileset; s: Stream): bool =
     tileset.streamSizes[kind].unpackedSize = s.readUint32()
     compressedLength += tileset.streamSizes[kind].packedSize
 
+  if compressedLength + 262 != tileset.fileSize:
+    echo "filesize doesn't match!"
+    return false
+
   let compressedData = newStringStream(s.readStr(compressedLength.int))
   defer: compressedData.close()
 
@@ -345,7 +348,7 @@ proc load*(tileset: var Tileset; filename: string): bool =
   defer: s.close()
   return tileset.load(s)
 
-proc save*(tileset: var Tileset; s: Stream): bool =
+proc save*(tileset: var Tileset; s: Stream) =
   s.write(DataFileCopyright)
   s.write("TILE")
   s.write(J2tSignature)
@@ -383,7 +386,7 @@ proc save*(tileset: var Tileset; s: Stream): bool =
     compressedData &= streams[kind]
     streams[kind] = ""
 
-  tileset.fileSize = compressedData.len.uint32
+  tileset.fileSize = compressedData.len.uint32 + 262
   tileset.checksum = crc32(compressedData)
 
   s.write(tileset.fileSize)
@@ -395,12 +398,10 @@ proc save*(tileset: var Tileset; s: Stream): bool =
 
   s.write(compressedData)
 
-  return true
-
-proc save*(tileset: var Tileset; filename: string): bool =
+proc save*(tileset: var Tileset; filename: string) =
   let s = newFileStream(filename, fmWrite)
   defer: s.close()
-  return tileset.save(s)
+  tileset.save(s)
 
 proc debug*(self: Tileset) =
   echo "drawing tileset buffers"
@@ -470,4 +471,4 @@ proc test*(filename: string) =
   var tileset = Tileset()
   if tileset.load(filename):
     tileset.debug()
-    doAssert tileset.save("tileset_saved.j2t")
+    tileset.save("tileset_saved.j2t")

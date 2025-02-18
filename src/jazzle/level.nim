@@ -136,10 +136,10 @@ type
     musicFile*: string
     helpString*: array[16, string]
 
-    tilesetEvents*: Table[int, Event]
+    tilesetEvents*: array[4096, Event]
     tileTypes*: array[4096, TileType]
-    isEachTileFlipped*: HashSet[int]
-    isEachTileUsed*: Table[int, uint8] # unused?
+    isEachTileFlipped*: array[4096, bool]
+    isEachTileUsed*: array[4096, uint8] # unused?
 
     # soundEffectPointer*: array[48, array[64, uint8]] # AGA version only
     layers*: array[LayerCount, Layer]
@@ -155,17 +155,17 @@ type
 
 var jcsEvents: array[256, EventInfo]
 
-proc maxTiles*(self: Level): uint32 =
+proc maxTiles*(self: Level): int =
   if self.version == v1_23:
-    1024'u32
+    1024
   else:
-    4096'u32
+    4096
 
-proc maxAnimTiles*(self: Level): uint16 =
+proc maxAnimTiles*(self: Level): int =
   if self.version == v1_23:
-    128'u16
+    128
   else:
-    256'u16
+    256
 
 proc parseTile*(self: Level; rawtile: uint16): Tile =
   if self.version != v1_24:
@@ -176,6 +176,17 @@ proc parseTile*(self: Level; rawtile: uint16): Tile =
   if result.tileId >= self.animOffset:
     result.animated = true
     result.tileId -= self.animOffset
+
+proc rawTile*(self: Level; tile: Tile): uint16 =
+  result = tile.tileId
+  if tile.animated:
+    result += self.animOffset
+  if tile.hflipped:
+    result = result or (if self.version == v1_23: 0x400 else: 0x1000)
+  if tile.vflipped:
+    result = result or 0x2000
+
+  assert self.parseTile(result) == tile
 
 proc updateAnims*(self: var Level; t: float64): bool =
   ## Updates animation frames and returns true if any change occured
@@ -265,31 +276,23 @@ proc loadInfo(self: var Level, s: Stream) =
 
   s.read(self.animOffset)
 
-  doAssert self.animOffset == self.maxTiles - self.animCount
+  doAssert self.animOffset == self.maxTiles.uint16 - self.animCount
 
-  var event = Event()
-  self.tilesetEvents.clear()
-  for i in 0..<self.maxTiles.int:
-    s.read(event)
-    if event.eventId > 0:
-      self.tilesetEvents[i] = event
+  for i in 0..<self.maxTiles:
+    s.read(self.tilesetEvents[i])
 
-  self.isEachTileFlipped.clear()
-  for i in 0..<self.maxTiles.int:
-    if s.readBool():
-      self.isEachTileFlipped.incl(i)
+  for i in 0..<self.maxTiles:
+    self.isEachTileFlipped[i] = s.readBool()
 
-  for i in 0..<self.maxTiles.int:
+  for i in 0..<self.maxTiles:
     let val = s.readUint8()
     self.tileTypes[i] = case val:
       of 1: Translucent
       of 4: Caption
       else: Default
 
-  for i in 0..<self.maxTiles.int:
-    let val = s.readUint8()
-    if val != 0:
-      self.isEachTileUsed[i] = val # unused?
+  for i in 0..<self.maxTiles:
+    s.read(self.isEachTileUsed[i]) # unused?
 
   # if self.version == v_AGA:
   #   s.read(self.unknownAGA)
@@ -311,6 +314,82 @@ proc loadInfo(self: var Level, s: Stream) =
   # remaining buffer of data1 is just zeroes
   s.close()
 
+proc writeLevelInfo(s: Stream; level: var Level) =
+  s.write(level.lastHorizontalOffset)
+  s.write(uint16 level.securityEnvelope shr 16)
+  s.write(level.lastVerticalOffset)
+  s.write(uint16 level.securityEnvelope and 0xff)
+  s.write(uint8 (level.securityEnabled.uint8 shl 4) or (level.lastLayer and 0b1111))
+
+  s.write(level.minLight)
+  s.write(level.startLight)
+  s.write(level.animCount)
+  s.write(level.verticalSplitscreen)
+  s.write(level.isLevelMultiplayer)
+
+  s.write(uint32 0xffffffff) # bufferSize, gets filled in later
+
+  s.writeCStr(level.levelName, 32)
+  s.writeCStr(level.tileset, 32)
+  s.writeCStr(level.bonusLevel, 32)
+  s.writeCStr(level.nextLevel, 32)
+  s.writeCStr(level.secretLevel, 32)
+  s.writeCStr(level.musicFile, 32)
+  for i in 0..<level.helpString.len:
+    s.writeCStr(level.helpString[i], 512)
+
+  for layer in level.layers.items: s.write(layer.properties)
+  for layer in level.layers.items: s.write(layer.layerType) # unused
+  for layer in level.layers.items: s.write(layer.haveAnyTiles)
+  for layer in level.layers.items: s.write(layer.width)
+  for layer in level.layers.items: s.write(layer.realWidth)
+  for layer in level.layers.items: s.write(layer.height)
+  for layer in level.layers.items: s.write(layer.zAxis) # unused
+  for layer in level.layers.items: s.write(layer.detailLevel) # mostly unused
+  for layer in level.layers.items: s.write(layer.waveX) # unused
+  for layer in level.layers.items: s.write(layer.waveY) # unused
+  for layer in level.layers.items: s.write(layer.speedX)
+  for layer in level.layers.items: s.write(layer.speedY)
+  for layer in level.layers.items: s.write(layer.autoSpeedX)
+  for layer in level.layers.items: s.write(layer.autoSpeedY)
+  for layer in level.layers.items: s.write(layer.textureMode)
+  for layer in level.layers.items: s.write(layer.textureParams)
+
+  level.animOffset = level.maxTiles.uint16 - level.animCount
+  s.write(level.animOffset)
+
+  for i in 0..<level.maxTiles:
+    s.write(level.tilesetEvents[i])
+
+  for i in 0..<level.maxTiles:
+    s.write(level.isEachTileFlipped[i])
+
+  for i in 0..<level.maxTiles:
+    s.write(level.tileTypes[i].uint8)
+
+  for i in 0..<level.maxTiles:
+    s.write(level.isEachTileUsed[i]) # unused?
+
+  for i, anim in level.anims.pairs:
+    s.write(anim.frameWait)
+    s.write(anim.randomWait)
+    s.write(anim.pingPongWait)
+    s.write(anim.pingPong)
+    s.write(anim.speed)
+    s.write(uint8 anim.frames.len)
+    var rawframes: array[64, uint16]
+    for f, frame in anim.frames:
+      rawframes[f] = level.rawTile(frame)
+    s.write(rawframes)
+
+  for i in 0..<(level.maxAnimTiles - level.anims.len):
+    for j in 0..<137:
+      s.write(uint8 0)
+
+  let bufferSize = s.getPosition().uint32
+  s.setPosition(15)
+  s.write(bufferSize)
+
 
 proc loadEvents(self: var Level; s: Stream) =
   self.events.setLen(self.streamSizes[EventData].unpackedSize div 4)
@@ -329,6 +408,11 @@ proc loadDictionary(self: var Level; s: Stream) =
   doAssert s.atEnd()
   s.close()
 
+proc writeDictData(s: Stream; level: Level) =
+  for word in level.dictionary:
+    for tile in word:
+      s.write(level.rawTile(tile))
+
 proc loadWordMap(self: var Level; s: Stream)=
   for i in 0..<8:
     if not self.layers[i].haveAnyTiles:
@@ -339,6 +423,12 @@ proc loadWordMap(self: var Level; s: Stream)=
   doAssert s.atEnd()
   s.close()
 
+proc writeWordMapData(s: Stream; level: Level) =
+  for i in 0..<8:
+    if not level.layers[i].haveAnyTiles:
+      continue
+    for j in 0..<level.layers[i].wordMap.len:
+      s.write(level.layers[i].wordMap[j])
 
 proc parseIniEvent(value: string): EventInfo =
   let values = value.strip().split('|')
@@ -403,8 +493,13 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
     self.streamSizes[kind].unpackedSize = s.readUint32()
     compressedLength += self.streamSizes[kind].packedSize
 
+  if compressedLength + 262 != self.fileSize:
+    echo "filesize doesn't match!"
+    return false
+
   let compressedData = newStringStream(s.readStr(compressedLength.int))
   defer: compressedData.close()
+
 
   let checksum = crc32(compressedData.data)
 
@@ -437,6 +532,61 @@ proc load*(self: var Level; filename: string; password: string = ""): bool =
   let s = newFileStream(filename)
   defer: s.close()
   self.load(s)
+
+proc save*(self: var Level; s: Stream) =
+  s.write(DataFileCopyright)
+  s.write("LEVL")
+  s.write(uint8 (self.passwordHash shr 16) and 0xff)
+  s.write(uint8 (self.passwordHash shr 8) and 0xff)
+  s.write(uint8 self.passwordHash and 0xff)
+  s.write(uint8 self.hideInHomecooked)
+  s.writeCStr(self.title, 32)
+  s.write(if self.version == v_AGA: J2lVersionAGA elif self.version == v1_23: J2lVersion1_23 else: J2lVersion1_24)
+
+  var streams: array[StreamKind, string]
+
+  let levelInfoStream = newStringStream("")
+  levelInfoStream.writeLevelInfo(self)
+  streams[LevelInfo] = levelInfoStream.data
+  levelInfoStream.close()
+
+  streams[EventData] = newString(self.events.len * sizeof(Event))
+  copyMem(streams[EventData][0].addr, self.events[0].addr, streams[EventData].len)
+
+  let dictDataStream = newStringStream("")
+  dictDataStream.writeDictData(self)
+  streams[DictData] = dictDataStream.data
+  dictDataStream.close()
+
+  let wordMapStream = newStringStream("")
+  wordMapStream.writeWordMapData(self)
+  streams[WordMapData] = wordMapStream.data
+  wordMapStream.close()
+
+  var compressedData = ""
+  for kind in StreamKind.items:
+    self.streamSizes[kind].unpackedSize = streams[kind].len.uint32
+    streams[kind] = compress(streams[kind], DefaultCompression, dfZlib)
+    self.streamSizes[kind].packedSize = streams[kind].len.uint32
+    compressedData &= streams[kind]
+    streams[kind] = ""
+
+  self.fileSize = compressedData.len.uint32 + 262
+  self.checksum = crc32(compressedData)
+
+  s.write(self.fileSize)
+  s.write(self.checksum)
+
+  for kind in StreamKind.items:
+    s.write(self.streamSizes[kind].packedSize)
+    s.write(self.streamSizes[kind].unpackedSize)
+
+  s.write(compressedData)
+
+proc save*(self: var Level; filename: string) =
+  let s = newFileStream(filename, fmWrite)
+  defer: s.close()
+  self.save(s)
 
 proc debug*(self: Level) =
 
@@ -551,4 +701,6 @@ proc test*(filename: string) =
 
   var level = Level()
   if level.load(filename, "heya"):
+    echo "saving level"
+    level.save("level_saved.j2l")
     level.debug()
