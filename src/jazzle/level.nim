@@ -32,13 +32,13 @@ const
     y: 64
   )
   DefaultLayerSpeeds = [
-    pow(1.5, 3),
     pow(1.5, 2),
-    1,
-    1,
+    pow(1.5, 1),
+    pow(1.5, 0),
+    pow(1.5, 0),
+    pow(1.5, -1),
     pow(1.5, -2),
     pow(1.5, -3),
-    pow(1.5, -4),
     0
   ]
 
