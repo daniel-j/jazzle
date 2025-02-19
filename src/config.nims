@@ -29,8 +29,11 @@ when defined(emscripten):
   #--passL:"-sALLOW_MEMORY_GROWTH=1"
   --passL:"-s INITIAL_MEMORY=128mb"
   #--passL:"-s MAXIMUM_MEMORY=500mb"
+  --passL:"-s EXPORTED_FUNCTIONS=['_main','_malloc','_free']"
+  --passL:"-s EXPORTED_RUNTIME_METHODS=['cwrap','stringToNewUTF8','UTF8ToString']"
   --passL:"-o build/index.html"
   --passL:"--shell-file tests/minshell.html"
+  --passL:"--js-library tests/library.js"
   --passC:"--cache wasmcache/emcc"
   --passL:"--cache wasmcache/emcc"
   when not defined(release):

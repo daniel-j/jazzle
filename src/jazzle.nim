@@ -3,6 +3,7 @@ import raylib, rlgl, raygui
 import jazzle/tileset
 import jazzle/level
 import std/math
+import std/os
 
 import ./jazzle/gui
 
@@ -79,16 +80,39 @@ var mainMenu = MainMenu(items: @[
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
 
+proc loadLevelData(filename: string) =
+  echo "trying to load file ", filename
+  if currentLevel.load(filename):
+    echo "load successful"
+    echo currentLevel
+  else:
+    echo "couldnt load level!"
+
 when defined(emscripten):
   when defined(cpp):
-    {.pragma: EMSCRIPTEN_KEEPALIVE, exportc, codegenDecl: "__attribute__((used)) extern \"C\" $# $#$#".}
+    {.pragma: EMSCRIPTEN_KEEPALIVE, cdecl, exportc, codegenDecl: "__attribute__((used)) extern \"C\" $# $#$#".}
   else:
-    {.pragma: EMSCRIPTEN_KEEPALIVE, exportc, codegenDecl: "__attribute__((used)) $# $#$#".}
+    {.pragma: EMSCRIPTEN_KEEPALIVE, cdecl, exportc, codegenDecl: "__attribute__((used)) $# $#$#".}
 
-  proc browserCheckFileOpen() {.EMSCRIPTEN_KEEPALIVE.} =
-    case showMenu(mainMenu, 20):
-    of MenuFileOpen: echo "menu click open2"
-    else: echo "unknown button!"
+  proc openFilePicker() {.importc.}
+
+  proc openFileCompleted(name: cstring; length: int; data: ptr uint8) {.EMSCRIPTEN_KEEPALIVE.} =
+    echo "file completed", name
+    echo (length)
+    var str = newString(length)
+    copyMem(str[0].addr, data, str.len)
+    createDir("/uploads")
+    writeFile("/uploads/" & $name, str)
+    loadLevelData("/uploads/" & $name)
+
+else:
+  {.pragma: EMSCRIPTEN_KEEPALIVE, cdecl, exportc.}
+
+  proc openFilePicker() =
+    discard
+
+
+
 
 proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileWidth: bool = false; tileHeight: bool = false) =
   if texture.id == 0: return
@@ -240,7 +264,7 @@ proc draw() =
   case showMenu(mainMenu, 20):
   of MenuNone: discard
   of MenuFileNew: discard
-  of MenuFileOpen: echo "menu click open1"
+  of MenuFileOpen: openFilePicker()
   of MenuLevelProperties: discard
 
   # discard GuiButton(Rectangle(x: 25, y: 255, width: 125, height: 30), GuiIconText(ICON_FILE_SAVE.cint, "Save File".cstring))

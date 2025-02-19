@@ -73,7 +73,6 @@
         <!--<p id="output"></p>-->
         <script>
             var Module = {
-                /*
                 print: (function() {
                     var element = document.getElementById('output');
                     if (element) element.value = ''; // clear browser cache
@@ -86,20 +85,11 @@
                         }
                     };
                 })(),
-                */
                 canvas: (function() {
                     var canvas = document.getElementById('canvas');
                     return canvas;
                 })()
             };
-            var inputfile = document.getElementById('inputfile');
-            Module.canvas.addEventListener('click', function () {
-                console.log("canvas click");
-                _browserCheckFileOpen();
-                /*showOpenFilePicker().then(function (files) {
-                    console.log(files);
-                });*/
-            }, false);
         </script>
         {{{ SCRIPT }}}
     </body>
