@@ -20,6 +20,7 @@ const
   SecurityNoPassword = 0x00BABE'u32
   LayerCount* = 8
   SpriteLayerId* = 3
+  AnimStructSize* = 137
 
 type
   StreamKind = enum
@@ -79,6 +80,7 @@ type
     speed*: int8
     frames*: seq[Tile]
     state*: AnimatedTileState
+    event*: Event
 
   LayerProperties* {.packed.} = object
     tileWidth* {.bitsize: 1.}: bool
@@ -134,7 +136,7 @@ type
     musicFile*: string
     helpString*: array[16, string]
 
-    tilesetEvents*: array[4096, Event]
+    tilesetEvents*: array[4096, Event] # events for animations are stored in anims[].event
     tileTypes*: array[4096, TileType]
     isEachTileFlipped*: array[4096, bool]
     isEachTileUsed*: array[4096, uint8] # unused?
@@ -145,11 +147,30 @@ type
 
     # unknownAGA*: array[32768, char] # only in AGA
 
-    animOffset*: uint16 # MAX_TILES minus AnimCount, also called StaticTiles
-    animCount*: uint16
     anims*: seq[AnimatedTile]
 
     dictionary*: seq[WordTiles]
+
+const NewLevel* = Level(
+  title: "Untitled",
+  version: v1_24,
+  passwordHash: SecurityNoPassword,
+  lastLayer: SpriteLayerId,
+  securityEnvelope: SecurityStringInsecure,
+  minLight: uint8 100 * 0.64,
+  startLight: uint8 100 * 0.64,
+  levelName: "Untitled",
+  layers: [
+    Layer(width: 864, height: 216, zAxis: -300, speedX: int32 3.375 * 65536, speedY: int32 3.375 * 65536),
+    Layer(width: 576, height: 100, zAxis: -200, speedX: int32 2.25 * 65536, speedY: int32 2.25 * 65536),
+    Layer(width: 256, height: 64, zAxis: -100, speedX: int32 1 * 65536, speedY: int32 1 * 65536),
+    Layer(width: 256, height: 64, zAxis: 0, speedX: int32 1 * 65536, speedY: int32 1 * 65536, haveAnyTiles: true),
+    Layer(width: 256, height: 64, zAxis: 100, speedX: int32 1 * 65536, speedY: int32 1 * 65536),
+    Layer(width: 114, height: 29, zAxis: 200, speedX: int32 65536 / 2.25, speedY: int32 65536 / 2.25),
+    Layer(width: 76, height: 19, zAxis: 300, speedX: int32 65536 / 3.375, speedY: int32 65536 / 3.375),
+    Layer(width: 8, height: 8, zAxis: 400, speedX: 0, speedY: 0, properties: LayerProperties(tileWidth: true, tileHeight: true))
+  ]
+)
 
 var jcsEvents: array[256, EventInfo]
 
@@ -165,7 +186,9 @@ proc maxAnimTiles*(self: Level): int =
   else:
     256
 
-proc parseTile*(self: Level; rawtile: uint16): Tile =
+proc animOffset*(self: Level): uint16 = uint16 self.maxTiles - self.anims.len
+
+proc parseTile(self: Level; rawtile: uint16): Tile =
   if self.version != v1_24:
     result = Tile(tileId: rawtile and 1023, hflipped: (rawtile and 0x400) > 0)
   else:
@@ -175,7 +198,7 @@ proc parseTile*(self: Level; rawtile: uint16): Tile =
     result.animated = true
     result.tileId -= self.animOffset
 
-proc rawTile*(self: Level; tile: Tile): uint16 =
+proc rawTile(self: Level; tile: Tile): uint16 =
   result = tile.tileId
   if tile.animated:
     result += self.animOffset
@@ -217,6 +240,16 @@ proc calculateAnimTile*(self: Level; animId: uint16; hflipped: bool = false; vfl
   result.hflipped = bool result.hflipped.ord xor hflipped.ord
   result.vflipped = bool result.vflipped.ord xor vflipped.ord
 
+proc setPassword*(self: var Level; password: string) =
+  self.securityEnvelope = SecurityStringPassworded
+  self.securityEnabled = true
+  self.passwordHash = crc32(password) and 0xffffff
+
+proc removePassword*(self: var Level) =
+  self.securityEnvelope = SecurityStringInsecure
+  self.securityEnabled = false
+  self.passwordHash = SecurityNoPassword
+
 proc loadInfo(self: var Level, s: Stream) =
   # data1
   s.read(self.lastHorizontalOffset)
@@ -227,16 +260,13 @@ proc loadInfo(self: var Level, s: Stream) =
   self.securityEnabled = (security3AndLastLayer shr 4) != 0
   self.lastLayer = security3AndLastLayer and 0b1111
 
-  case self.securityEnvelope:
-  of SecurityStringPassworded: echo "level passworded"
-  of SecurityStringMLLE: echo "MLLE only level"
-  of SecurityStringInsecure: echo "level unprotected"
-  else: echo "unknown security"
-  # echo self.securityEnabled, " ", (security3AndLastLayer shr 4)
-
   s.read(self.minLight)
   s.read(self.startLight)
-  s.read(self.animCount)
+
+  var animCount: uint16
+  s.read(animCount)
+  self.anims.setLen(animCount.int)
+
   s.read(self.verticalSplitscreen)
   s.read(self.isLevelMultiplayer)
 
@@ -272,12 +302,16 @@ proc loadInfo(self: var Level, s: Stream) =
   for layer in self.layers.mitems: s.read(layer.textureMode)
   for layer in self.layers.mitems: s.read(layer.textureParams)
 
-  s.read(self.animOffset)
+  var staticTiles: uint16
+  s.read(staticTiles)
 
-  doAssert self.animOffset == self.maxTiles.uint16 - self.animCount
+  doAssert staticTiles == self.maxTiles.uint16 - animCount
+  doAssert staticTiles == self.animOffset
 
-  for i in 0..<self.maxTiles:
+  for i in 0..<staticTiles.int:
     s.read(self.tilesetEvents[i])
+  for i in 0..<self.anims.len:
+    s.read(self.anims[i].event)
 
   for i in 0..<self.maxTiles:
     self.isEachTileFlipped[i] = s.readBool()
@@ -295,7 +329,6 @@ proc loadInfo(self: var Level, s: Stream) =
   # if self.version == v_AGA:
   #   s.read(self.unknownAGA)
 
-  self.anims.setLen(self.animCount.int)
   for i, anim in self.anims.mpairs:
     s.read(anim.frameWait)
     s.read(anim.randomWait)
@@ -316,12 +349,12 @@ proc writeLevelInfo(s: Stream; level: var Level) =
   s.write(level.lastHorizontalOffset)
   s.write(uint16 level.securityEnvelope shr 16)
   s.write(level.lastVerticalOffset)
-  s.write(uint16 level.securityEnvelope and 0xff)
+  s.write(uint16 level.securityEnvelope and 0xffff)
   s.write(uint8 (level.securityEnabled.uint8 shl 4) or (level.lastLayer and 0b1111))
 
   s.write(level.minLight)
   s.write(level.startLight)
-  s.write(level.animCount)
+  s.write(uint16 level.anims.len)
   s.write(level.verticalSplitscreen)
   s.write(level.isLevelMultiplayer)
 
@@ -353,8 +386,7 @@ proc writeLevelInfo(s: Stream; level: var Level) =
   for layer in level.layers.items: s.write(layer.textureMode)
   for layer in level.layers.items: s.write(layer.textureParams)
 
-  level.animOffset = level.maxTiles.uint16 - level.animCount
-  s.write(level.animOffset)
+  s.write(uint16 level.animOffset)
 
   for i in 0..<level.maxTiles:
     s.write(level.tilesetEvents[i])
@@ -381,7 +413,7 @@ proc writeLevelInfo(s: Stream; level: var Level) =
     s.write(rawframes)
 
   for i in 0..<(level.maxAnimTiles - level.anims.len):
-    for j in 0..<137:
+    for j in 0..<AnimStructSize:
       s.write(uint8 0)
 
   let bufferSize = s.getPosition().uint32
@@ -468,14 +500,12 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   let magic = s.readStr(4)
   doAssert magic == "LEVL"
   self.passwordHash = (s.readUint8().uint32 shl 16) or (s.readUint8().uint32 shl 8) or s.readUint8().uint32
-  # doAssert s.readData(self.passwordHash.addr, 3) == 3
-  # bigEndian32(self.passwordHash.addr, self.passwordHash.addr)
 
   if self.passwordHash != SecurityNoPassword:
     var hash = crc32(password) and 0xffffff
     if self.passwordHash != hash:
       echo "invalid password"
-      echo (self.passwordHash.toHex(), hash.toHex())
+      echo (self.passwordHash.toHex(), hash.toHex(), password)
       return false
 
   s.read(self.hideInHomecooked)
@@ -498,7 +528,6 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   let compressedData = newStringStream(s.readStr(compressedLength.int))
   defer: compressedData.close()
 
-
   let checksum = crc32(compressedData.data)
 
   if checksum != self.checksum:
@@ -519,6 +548,13 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   s.close()
 
   self.loadInfo(sections[LevelInfo])
+
+  case self.securityEnvelope:
+  of SecurityStringPassworded: echo "level passworded"
+  of SecurityStringMLLE: echo "MLLE only level"
+  of SecurityStringInsecure: echo "level unprotected"
+  else: echo "unknown security envelope: " & self.securityEnvelope.toHex(); return false
+
   self.loadEvents(sections[EventData])
   self.loadDictionary(sections[DictData])
   self.loadWordMap(sections[WordMapData])
@@ -529,7 +565,7 @@ proc load*(self: var Level; filename: string; password: string = ""): bool =
   self.reset()
   let s = newFileStream(filename)
   defer: s.close()
-  self.load(s)
+  self.load(s, password)
 
 proc save*(self: var Level; s: Stream) =
   s.write(DataFileCopyright)
@@ -549,7 +585,8 @@ proc save*(self: var Level; s: Stream) =
   levelInfoStream.close()
 
   streams[EventData] = newString(self.events.len * sizeof(Event))
-  copyMem(streams[EventData][0].addr, self.events[0].addr, streams[EventData].len)
+  if self.events.len > 0:
+    copyMem(streams[EventData][0].addr, self.events[0].addr, streams[EventData].len)
 
   let dictDataStream = newStringStream("")
   dictDataStream.writeDictData(self)
@@ -611,14 +648,14 @@ proc debug*(self: Level) =
   var tileset = Tileset()
   doAssert tileset.load(self.tileset)
 
-  if self.animCount.int > 0:
+  if self.anims.len > 0:
     var highestFrame = 0
     for anim in self.anims:
       if anim.frames.len > highestFrame:
         highestFrame = anim.frames.len
     if highestFrame > 0:
       echo "drawing anims"
-      var ima = newImage(32 * highestFrame.int,  32 * self.animCount.int)
+      var ima = newImage(32 * highestFrame.int,  32 * self.anims.len)
       for i, anim in self.anims:
         for j, frame in anim.frames:
           if frame.tileId == 0 or frame.tileId >= self.animOffset: continue
@@ -697,7 +734,17 @@ proc test*(filename: string) =
   echo "loading events"
   loadJcsIni("JCS.ini")
 
+  var newLevel = NewLevel
+  newLevel.setPassword("heya")
+  newLevel.save("level_new.j2l")
+
   var level = Level()
+  doAssert level.load("level_new.j2l", "heya")
+  level.save("level_new_saved.j2l")
+
+  doAssert readFile("level_new.j2l") == readFile("level_new_saved.j2l")
+
+  level = Level()
   if level.load(filename, "heya"):
     echo "saving level"
     level.save("level_saved.j2l")
