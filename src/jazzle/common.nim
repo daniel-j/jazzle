@@ -29,3 +29,12 @@ proc writeCStr*(s: Stream; str: string; len: int) =
       s.write('\0')
   else:
     s.write(str[0 ..< len])
+
+
+proc rfind*[T, S](a: T, item: S): int {.inline.} =
+  ## Returns the last index of `item` in `a` or -1 if not found. This requires
+  ## appropriate `high` and `==` operations to work.
+  let last = a.high
+  for i in countdown(last, 0):
+    if item == a[i]: return i
+  return -1

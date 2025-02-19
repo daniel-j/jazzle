@@ -13,6 +13,7 @@ const
   J2tVersion1_23 = 0x200'u16
   J2tVersion1_24 = 0x201'u16
 
+  HeaderStructSize = 262
 
 type
 
@@ -39,7 +40,6 @@ type
     version*: GameVersion
     fileSize*: uint32
     checksum*: uint32
-    streamSizes*: array[StreamKind, StreamSize]
     palette*: array[256, array[4, uint8]]
     numTiles*: uint32
     tileOffsets*: seq[TileOffsets] # contains tile offsets
@@ -124,7 +124,7 @@ proc writeMaskJJ2Data(s: Stream; tileMaskJJ2: TileMask): int =
 
     result += 1 + columnData.len
 
-proc readInfo(self: var Tileset, s: Stream) =
+proc readInfo(self: var Tileset, s: StringStream) =
   # data1
   s.read(self.palette)
   self.numTiles = s.readUint32()
@@ -183,24 +183,41 @@ proc writeInfo(s: Stream; tileset: Tileset) =
   for i in 0 ..< maxTiles:
     s.write(uint32 tileset.tileOffsets[i].flipped * 128)
 
+proc readImageData(self: var Tileset, s: StringStream) =
+  # data2 image data
+  self.tileImage.setLen(s.data.len div 1024)
+  var im = newImage(self.tileImage.len * 32, 32)
 
-proc readImageData(self: var Tileset, si: Stream, sa: Stream, sm: Stream) =
-  let imageDataLength = self.streamSizes[ImageData].unpackedSize
-  let maskDataLength = self.streamSizes[MaskData].unpackedSize
-  self.tileImage.setLen(imageDataLength div 1024)
-  self.tileMask.setLen(maskDataLength div 128)
+  for i in 0..<self.tileImage.len:
+    s.read(self.tileImage[i])
+    for j in 0..<1024:
+      let color = self.tileImage[i][j]
+      im[i * 32 + j mod 32, j div 32] = ColorRGBA(
+        r: self.palette[color][0],
+        g: self.palette[color][1],
+        b: self.palette[color][2],
+        a: if color > 0: 255 else: 0
+      )
 
-  # data3 extraction
+  doAssert s.atEnd()
+  s.close()
+
+  im.writeFile("tileset_data2.png")
+
+proc readTransMask(self: var Tileset; s: StringStream) =
+  # data3 transparency mask
   var transCounter = 0
   var transMaskOffset = newSeq[uint32](self.maxTiles)
   self.tileTransMask.setLen(0)
-  while not sa.atEnd():
-    transMaskOffset[transCounter] = sa.getPosition().uint32
+  self.tileTransMaskJJ2.setLen(0)
+
+  while not s.atEnd():
+    transMaskOffset[transCounter] = s.getPosition().uint32
     # first 128 bytes contain regular transparency mask
-    self.tileTransMask.add(sa.readMaskData())
+    self.tileTransMask.add(s.readMaskData())
     # but jj2 uses a special format that follows it
     self.tileTransMaskJJ2.setLen(transCounter + 1)
-    self.tileTransMaskJJ2[transCounter] = sa.readMaskJJ2Data()
+    self.tileTransMaskJJ2[transCounter] = s.readMaskJJ2Data()
 
     # check that they are equal
     # doAssert self.tileTransMask[transCounter] == self.tileTransMaskJJ2[transCounter]
@@ -217,58 +234,48 @@ proc readImageData(self: var Tileset, si: Stream, sa: Stream, sm: Stream) =
         self.tileOffsets[i].transOffset = j
         break
 
-  var im = newImage(max(self.tileImage.len, max(self.tileTransMask.len, self.tileMask.len)) * 32, 32 * 4)
+  var im = newImage(self.tileTransMask.len * 32, 32 * 2)
 
-  # data2
-  for i in 0..<self.tileImage.len:
-    si.read(self.tileImage[i])
-    for j in 0..<1024:
-      let color = self.tileImage[i][j]
-      im[i * 32 + j mod 32, j div 32] = ColorRGBA(
-        r: self.palette[color][0],
-        g: self.palette[color][1],
-        b: self.palette[color][2],
-        a: if color > 0: 255 else: 0
-      )
-
-  doAssert si.atEnd()
-  si.close()
-
-  # data3
   for i in 0..<self.tileTransMask.len:
     for j in 0..<1024:
       let color = if self.tileTransMask[i][j]: 100'u8 else: 255'u8
-      im[i * 32 + j mod 32, 1 * 32 + (j div 32)] = ColorRGB(
+      im[i * 32 + j mod 32, 0 * 32 + (j div 32)] = ColorRGB(
         r: color,
         g: color,
         b: color
       )
       let color2 = if self.tileTransMaskJJ2[i][j]: 100'u8 else: 255'u8
-      im[i * 32 + j mod 32, 2 * 32 + (j div 32)] = ColorRGB(
+      im[i * 32 + j mod 32, 1 * 32 + (j div 32)] = ColorRGB(
         r: color2,
         g: color2,
         b: color2
       )
 
-  doAssert sa.atEnd()
-  sa.close()
+  doAssert s.atEnd()
+  s.close()
 
-  # data4
+  im.writeFile("tileset_data3.png")
+
+proc readMaskData(self: var Tileset; s: StringStream) =
+  # data4 collision mask
+  self.tileMask.setLen(s.data.len div 128)
+
+  var im = newImage(self.tileMask.len * 32, 32)
+
   for i in 0..<self.tileMask.len:
-    self.tileMask[i] = sm.readMaskData()
+    self.tileMask[i] = s.readMaskData()
     for j in 0..<1024:
       let color = if self.tileMask[i][j]: 50'u8 else: 255'u8
-      im[i * 32 + j mod 32, 3 * 32 + (j div 32)] = ColorRGB(
+      im[i * 32 + (j mod 32), j div 32] = ColorRGB(
         r: color,
         g: color,
         b: color
       )
 
-  doAssert sm.atEnd()
-  sm.close()
+  doAssert s.atEnd()
+  s.close()
 
-  # DEBUG
-  im.writeFile("uniquetiles.png")
+  im.writeFile("tileset_data4.png")
 
 proc writeImageData(s: Stream; tileset: Tileset) =
   for i in 0..<tileset.tileImage.len:
@@ -276,7 +283,7 @@ proc writeImageData(s: Stream; tileset: Tileset) =
 
 proc writeTransMaskData(s: Stream; tileset: var Tileset) =
   ## Writes transparent mask data to stream
-  ## This also updates the trans tile offsets in Tileset
+  ## This also updates the trans tile offsets
 
   var offsets = newSeq[uint32](tileset.tileTransMask.len)
   var offset = 0'u32
@@ -307,13 +314,16 @@ proc load*(tileset: var Tileset; s: Stream): bool =
   tileset.fileSize = s.readUint32()
   tileset.checksum = s.readUint32()
 
+  var streamSizes: array[StreamKind, StreamSize]
   var compressedLength: uint32 = 0
   for kind in StreamKind.items:
-    tileset.streamSizes[kind].packedSize = s.readUint32()
-    tileset.streamSizes[kind].unpackedSize = s.readUint32()
-    compressedLength += tileset.streamSizes[kind].packedSize
+    streamSizes[kind].packedSize = s.readUint32()
+    streamSizes[kind].unpackedSize = s.readUint32()
+    compressedLength += streamSizes[kind].packedSize
 
-  if compressedLength + 262 != tileset.fileSize:
+  doAssert s.getPosition() == HeaderStructSize
+
+  if compressedLength + HeaderStructSize != tileset.fileSize:
     echo "filesize doesn't match!"
     return false
 
@@ -326,9 +336,9 @@ proc load*(tileset: var Tileset; s: Stream): bool =
     echo "checksums doesn't match!"
     return false
 
-  var sections: array[StreamKind, Stream]
+  var sections: array[StreamKind, StringStream]
   for kind in StreamKind.items:
-    let data = uncompress(compressedData.readStr(tileset.streamSizes[kind].packedSize.int), dfZlib)
+    let data = uncompress(compressedData.readStr(streamSizes[kind].packedSize.int), dfZlib)
     sections[kind] = newStringStream(data)
 
   doAssert compressedData.atEnd()
@@ -338,7 +348,9 @@ proc load*(tileset: var Tileset; s: Stream): bool =
   s.close()
 
   tileset.readInfo(sections[TilesetInfo])
-  tileset.readImageData(sections[ImageData], sections[TransData], sections[MaskData])
+  tileset.readImageData(sections[ImageData])
+  tileset.readTransMask(sections[TransData])
+  tileset.readMaskData(sections[MaskData])
 
   return true
 
@@ -372,29 +384,30 @@ proc save*(tileset: var Tileset; s: Stream) =
   streams[MaskData] = maskDataStream.data
   maskDataStream.close()
 
-  # needs to be after TransData, since that updates trans mask tile offsets
+  # needs to be after the other streams, since they update the tile offsets
   let tileInfoStream = newStringStream("")
   tileInfoStream.writeInfo(tileset)
   streams[TilesetInfo] = tileInfoStream.data
   tileInfoStream.close()
 
+  var streamSizes: array[StreamKind, StreamSize]
   var compressedData = ""
   for kind in StreamKind.items:
-    tileset.streamSizes[kind].unpackedSize = streams[kind].len.uint32
+    streamSizes[kind].unpackedSize = streams[kind].len.uint32
     streams[kind] = compress(streams[kind], DefaultCompression, dfZlib)
-    tileset.streamSizes[kind].packedSize = streams[kind].len.uint32
+    streamSizes[kind].packedSize = streams[kind].len.uint32
     compressedData &= streams[kind]
     streams[kind] = ""
 
-  tileset.fileSize = compressedData.len.uint32 + 262
+  tileset.fileSize = compressedData.len.uint32 + HeaderStructSize
   tileset.checksum = crc32(compressedData)
 
   s.write(tileset.fileSize)
   s.write(tileset.checksum)
 
   for kind in StreamKind.items:
-    s.write(tileset.streamSizes[kind].packedSize)
-    s.write(tileset.streamSizes[kind].unpackedSize)
+    s.write(streamSizes[kind].packedSize)
+    s.write(streamSizes[kind].unpackedSize)
 
   s.write(compressedData)
 

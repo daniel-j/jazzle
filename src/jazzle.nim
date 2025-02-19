@@ -321,11 +321,12 @@ proc main =
       var layerData = newSeq[uint16](layer.width * layer.height)
       let realWidth = ((layer.realWidth + 3) div 4) * 4
       if layer.haveAnyTiles:
-        for j, wordId in layer.wordMap.pairs:
+        for j, wordId in layer.tileCache.pairs:
           if wordId == 0: continue
           let word = currentLevel.dictionary[wordId]
-          for t, tile in word.pairs:
-            if tile.tileId == 0: continue
+          for t, rawtile in word.pairs:
+            if rawtile == 0: continue
+            let tile = currentLevel.parseTile(rawtile)
             if ((j * 4 + t) mod realWidth.int) >= layer.width.int: continue
             var tileId = tile.tileId
             if tile.animated: tileId += currentLevel.animOffset

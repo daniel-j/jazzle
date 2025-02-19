@@ -14,13 +14,33 @@ const
   J2lVersionAGA  = 0x100'u16
   J2lVersion1_23 = 0x202'u16
   J2lVersion1_24 = 0x203'u16
-  SecurityStringPassworded = 0xBA00BE00'u32
-  SecurityStringMLLE = 0xBACABEEF'u32
-  SecurityStringInsecure = 0x00000000'u32
-  SecurityNoPassword = 0x00BABE'u32
+
+  HashNoPassword = 0x00BABE'u32
+
+  SecurityPassworded = 0xBA00BE00'u32
+  SecurityMLLE = 0xBACABEEF'u32
+  SecurityDisabled = 0x00000000'u32
+
   LayerCount* = 8
-  SpriteLayerId* = 3
-  AnimStructSize* = 137
+  SpriteLayerNum* = 3
+  BackgroundLayerNum* = 7
+  HeaderStructSize = 262
+  AnimStructSize = 137
+
+  DefaultLevelSize = (
+    x: 256,
+    y: 64
+  )
+  DefaultLayerSpeeds = [
+    pow(1.5, 3),
+    pow(1.5, 2),
+    1,
+    1,
+    pow(1.5, -2),
+    pow(1.5, -3),
+    pow(1.5, -4),
+    0
+  ]
 
 type
   StreamKind = enum
@@ -51,14 +71,22 @@ type
     label*: string
     params*: seq[tuple[name: string, size: int]]
 
+  RawTile* = uint16
+
   Tile* = object
     tileId*: uint16
     hflipped*: bool
     vflipped*: bool # plus only
     animated*: bool
 
-  WordId* = uint16
+  WordId* = uint16 # index in dictionary
+  RawWord* = array[4, RawTile]
   WordTiles* = array[4, Tile]
+
+  WordOverride* = object
+    x*: int
+    y*: int
+    wordId*: WordId
 
   TileType*  {.size: sizeof(uint8).} = enum
     Default = 0
@@ -107,7 +135,9 @@ type
     autoSpeedY*: int32
     textureMode*: uint8
     textureParams*: array[3, uint8]
-    wordMap*: seq[WordId]
+    tileCache*: seq[WordId]
+    tileCacheOverrides*: seq[WordOverride]
+    map*: seq[seq[Tile]]
 
   Level* = object
     title*: string
@@ -116,7 +146,6 @@ type
     passwordHash: uint32 # lower 3 bytes only (24-bit)
     fileSize*: uint32
     checksum*: uint32
-    streamSizes*: array[StreamKind, StreamSize]
 
     lastHorizontalOffset*: uint16
     lastVerticalOffset*: uint16
@@ -143,34 +172,13 @@ type
 
     # soundEffectPointer*: array[48, array[64, uint8]] # AGA version only
     layers*: array[LayerCount, Layer]
-    events*: seq[Event]
+    events*: seq[seq[Event]]
 
     # unknownAGA*: array[32768, char] # only in AGA
 
     anims*: seq[AnimatedTile]
 
-    dictionary*: seq[WordTiles]
-
-const NewLevel* = Level(
-  title: "Untitled",
-  version: v1_24,
-  passwordHash: SecurityNoPassword,
-  lastLayer: SpriteLayerId,
-  securityEnvelope: SecurityStringInsecure,
-  minLight: uint8 100 * 0.64,
-  startLight: uint8 100 * 0.64,
-  levelName: "Untitled",
-  layers: [
-    Layer(width: 864, height: 216, zAxis: -300, speedX: int32 3.375 * 65536, speedY: int32 3.375 * 65536),
-    Layer(width: 576, height: 100, zAxis: -200, speedX: int32 2.25 * 65536, speedY: int32 2.25 * 65536),
-    Layer(width: 256, height: 64, zAxis: -100, speedX: int32 1 * 65536, speedY: int32 1 * 65536),
-    Layer(width: 256, height: 64, zAxis: 0, speedX: int32 1 * 65536, speedY: int32 1 * 65536, haveAnyTiles: true),
-    Layer(width: 256, height: 64, zAxis: 100, speedX: int32 1 * 65536, speedY: int32 1 * 65536),
-    Layer(width: 114, height: 29, zAxis: 200, speedX: int32 65536 / 2.25, speedY: int32 65536 / 2.25),
-    Layer(width: 76, height: 19, zAxis: 300, speedX: int32 65536 / 3.375, speedY: int32 65536 / 3.375),
-    Layer(width: 8, height: 8, zAxis: 400, speedX: 0, speedY: 0, properties: LayerProperties(tileWidth: true, tileHeight: true))
-  ]
-)
+    dictionary*: seq[RawWord]
 
 var jcsEvents: array[256, EventInfo]
 
@@ -188,7 +196,23 @@ proc maxAnimTiles*(self: Level): int =
 
 proc animOffset*(self: Level): uint16 = uint16 self.maxTiles - self.anims.len
 
-proc parseTile(self: Level; rawtile: uint16): Tile =
+proc calculateRealWidth*(width: uint32; tileWidth: bool): uint32 =
+  if not tileWidth:
+    ((width + 3) div 4) * 4
+  else:
+    var overflow = width mod 4
+    if overflow == 0:
+      width
+    elif overflow == 2:
+      width * 2
+    else:
+      width * 4
+
+proc layerSpeed*(speed: float): int32 {.inline.} = int32 speed * 65536
+
+proc lightLevel*(level: float): uint8 {.inline.} = uint8 level * 0.64
+
+proc parseTile*(self: Level; rawtile: RawTile): Tile =
   if self.version != v1_24:
     result = Tile(tileId: rawtile and 1023, hflipped: (rawtile and 0x400) > 0)
   else:
@@ -198,7 +222,7 @@ proc parseTile(self: Level; rawtile: uint16): Tile =
     result.animated = true
     result.tileId -= self.animOffset
 
-proc rawTile(self: Level; tile: Tile): uint16 =
+proc rawTile*(self: Level; tile: Tile): RawTile =
   result = tile.tileId
   if tile.animated:
     result += self.animOffset
@@ -206,7 +230,8 @@ proc rawTile(self: Level; tile: Tile): uint16 =
     result = result or (if self.version == v1_23: 0x400 else: 0x1000)
   if tile.vflipped:
     result = result or 0x2000
-
+  # if self.parseTile(result) != tile:
+  #   echo (self.parseTile(result), tile, result, self.anims.len)
   assert self.parseTile(result) == tile
 
 proc updateAnims*(self: var Level; t: float64): bool =
@@ -241,14 +266,152 @@ proc calculateAnimTile*(self: Level; animId: uint16; hflipped: bool = false; vfl
   result.vflipped = bool result.vflipped.ord xor vflipped.ord
 
 proc setPassword*(self: var Level; password: string) =
-  self.securityEnvelope = SecurityStringPassworded
+  self.securityEnvelope = SecurityPassworded
   self.securityEnabled = true
   self.passwordHash = crc32(password) and 0xffffff
 
 proc removePassword*(self: var Level) =
-  self.securityEnvelope = SecurityStringInsecure
+  self.securityEnvelope = SecurityDisabled
   self.securityEnabled = false
-  self.passwordHash = SecurityNoPassword
+  self.passwordHash = HashNoPassword
+
+proc checkIfLayerHaveTiles*(self: Level; layerId: int): bool =
+  if layerId == SpriteLayerNum: return true
+  for row in self.layers[layerId].map:
+    for tile in row:
+      if tile.tileId > 0 or tile.animated:
+        return true
+
+proc rebuildMap*(self: var Level) =
+  for i, layer in self.layers.mpairs:
+    layer.map.setLen(layer.height)
+    for row in layer.map.mitems:
+      row.setLen(layer.width)
+    if not layer.haveAnyTiles: continue
+    for j, wordId in layer.tileCache.pairs:
+      if wordId == 0: continue
+      let word = self.dictionary[wordId]
+      for t, rawtile in word.pairs:
+        if rawtile == 0: continue
+        if ((j * 4 + t) mod layer.realWidth.int) >= layer.width.int: continue
+        let tile = self.parseTile(rawtile)
+        let x = (j * 4 + t) mod layer.realWidth.int
+        let y = (j * 4 + t) div layer.realWidth.int
+        layer.map[y][x] = tile
+
+proc rebuildTileCache*(self: var Level; saveOverrides: bool = false) =
+  var dictionary = newSeq[RawWord](1)
+  for i, layer in self.layers.mpairs:
+    var tileCache: seq[WordId]
+    layer.haveAnyTiles = self.checkIfLayerHaveTiles(i)
+    layer.realWidth = calculateRealWidth(layer.width, layer.properties.tileWidth)
+    if saveOverrides:
+      layer.tileCacheOverrides.setLen(0)
+    if not layer.haveAnyTiles: continue
+    echo "reading words in layer ", i
+    for y, row in layer.map:
+      var x = 0
+      while x < layer.realWidth.int:
+        var hasAnimAndEvent = false
+        var rawword: RawWord
+        for k in 0..<4:
+          if not layer.properties.tileWidth and x + k >= layer.width.int:
+            break
+          let tile = row[(x + k) mod layer.width.int].addr
+          if tile.tileId == 0 and not tile.animated:
+            tile.hflipped = false
+            tile.vflipped = false
+          rawword[k] = self.rawTile(tile[])
+          if i == SpriteLayerNum and tile.animated and x + k < layer.width.int and self.events[y][x + k].eventId > 0:
+            hasAnimAndEvent = true
+        if hasAnimAndEvent:
+          let pos = dictionary.len
+          dictionary.add(rawword)
+          tileCache.add(pos.uint16)
+        else:
+          var pos = dictionary.rfind(rawword)
+          if pos == -1:
+            pos = dictionary.len
+            dictionary.add(rawword)
+          tileCache.add(pos.uint16)
+
+        let index = tileCache.len - 1
+        if saveOverrides:
+          if layer.tileCache[index] != tileCache[index]:
+            layer.tileCacheOverrides.add(WordOverride(x: x, y: y, wordId: layer.tileCache[index]))
+            tileCache[index] = layer.tileCache[index]
+        else:
+          for override in layer.tileCacheOverrides:
+            if override.x == x and override.y == y:
+              tileCache[index] = override.wordId
+
+        x += 4
+
+    echo "tileCache ", i, " ", (layer.tileCache.len, tileCache.len), layer.tileCache == tileCache
+    echo layer.tileCacheOverrides
+    layer.tileCache = tileCache
+
+  echo "dict ", (self.dictionary.len, dictionary.len), self.dictionary == dictionary
+  self.dictionary = dictionary
+
+const NewLevel* = static:
+  var level = Level(
+    title: "Untitled",
+    version: v1_24,
+    passwordHash: HashNoPassword,
+    lastLayer: SpriteLayerNum,
+    securityEnvelope: SecurityDisabled,
+    minLight: lightLevel(100),
+    startLight: lightLevel(100),
+    dictionary: newSeq[RawWord](1)
+  )
+  level.levelName = level.title
+
+  level.layers[BackgroundLayerNum].properties.tileWidth = true
+  level.layers[BackgroundLayerNum].properties.tileHeight = true
+
+  for i, layer in level.layers.mpairs:
+    layer.zAxis = int32 i * 100 - 300
+    if i != BackgroundLayerNum:
+      layer.width = ceil(DefaultLevelSize.x.float * DefaultLayerSpeeds[i]).uint32
+      layer.height = ceil(DefaultLevelSize.y.float * DefaultLayerSpeeds[i]).uint32
+    else:
+      layer.width = 8
+      layer.height = 8
+    if i == SpriteLayerNum:
+      layer.speedX = layerSpeed(1)
+      layer.speedY = layerSpeed(1)
+      layer.haveAnyTiles = true
+      level.events.setLen(layer.height)
+      for row in level.events.mitems:
+        row.setLen(layer.width)
+    else:
+      layer.speedX = layerSpeed(DefaultLayerSpeeds[i])
+      layer.speedY = layerSpeed(DefaultLayerSpeeds[i])
+
+    layer.map.setLen(layer.height)
+    for row in layer.map.mitems:
+      row.setLen(layer.width)
+
+    layer.realWidth = calculateRealWidth(layer.width, layer.properties.tileWidth)
+
+    if layer.haveAnyTiles:
+      layer.tileCache = newSeq[WordId](layer.realWidth * layer.height div 4)
+
+  # level.anims.add(AnimatedTile(frames: @[Tile(tileId: 100)]))
+
+  # level.layers[SpriteLayerNum].map[63][200] = Tile(tileId: 0, animated: true)
+  # level.events[63][200].eventId = 160
+  # level.layers[SpriteLayerNum].map[63][204] = Tile(tileId: 0, animated: true)
+  # level.events[63][204].eventId = 170
+  # level.layers[SpriteLayerNum].map[63][208] = Tile(tileId: 0, animated: true)
+
+  # level.layers[SpriteLayerNum].map[63][180] = Tile(tileId: 100)
+  # level.layers[SpriteLayerNum].map[63][184] = Tile(tileId: 100)
+
+  level.rebuildTileCache()
+
+  level
 
 proc loadInfo(self: var Level, s: Stream) =
   # data1
@@ -345,7 +508,7 @@ proc loadInfo(self: var Level, s: Stream) =
   # remaining buffer of data1 is just zeroes
   s.close()
 
-proc writeLevelInfo(s: Stream; level: var Level) =
+proc writeInfo(s: Stream; level: var Level) =
   s.write(level.lastHorizontalOffset)
   s.write(uint16 level.securityEnvelope shr 16)
   s.write(level.lastVerticalOffset)
@@ -373,7 +536,9 @@ proc writeLevelInfo(s: Stream; level: var Level) =
   for layer in level.layers.items: s.write(layer.layerType) # unused
   for layer in level.layers.items: s.write(layer.haveAnyTiles)
   for layer in level.layers.items: s.write(layer.width)
-  for layer in level.layers.items: s.write(layer.realWidth)
+  for layer in level.layers.mitems:
+    layer.realWidth = calculateRealWidth(layer.width, layer.properties.tileWidth)
+    s.write(layer.realWidth)
   for layer in level.layers.items: s.write(layer.height)
   for layer in level.layers.items: s.write(layer.zAxis) # unused
   for layer in level.layers.items: s.write(layer.detailLevel) # mostly unused
@@ -420,45 +585,44 @@ proc writeLevelInfo(s: Stream; level: var Level) =
   s.setPosition(15)
   s.write(bufferSize)
 
-
-proc loadEvents(self: var Level; s: Stream) =
-  self.events.setLen(self.streamSizes[EventData].unpackedSize div 4)
-  for event in self.events.mitems:
-    s.read(event)
+proc loadEvents(self: var Level; s: StringStream) =
+  self.events.setLen(self.layers[SpriteLayerNum].height)
+  for row in self.events.mitems:
+    row.setLen(self.layers[SpriteLayerNum].width)
+    for event in row.mitems:
+      s.read(event)
   doAssert s.atEnd()
   s.close()
 
-proc loadDictionary(self: var Level; s: Stream) =
-  self.dictionary.setLen(self.streamSizes[DictData].unpackedSize.int div 8)
-  var rawword: array[4, uint16]
+proc loadDictionary(self: var Level; s: StringStream) =
+  self.dictionary.setLen(s.data.len div sizeof(RawWord))
   for word in self.dictionary.mitems:
-    s.read(rawword)
-    for t, rawtile in rawword.pairs:
-      word[t] = self.parseTile(rawtile)
+    s.read(word)
   doAssert s.atEnd()
   s.close()
 
 proc writeDictData(s: Stream; level: Level) =
   for word in level.dictionary:
     for tile in word:
-      s.write(level.rawTile(tile))
+      s.write(tile)
 
 proc loadWordMap(self: var Level; s: Stream)=
-  for i in 0..<8:
+  for i in 0..<LayerCount:
     if not self.layers[i].haveAnyTiles:
+      self.layers[i].tileCache.setLen(0)
       continue
-    self.layers[i].wordMap.setLen(((self.layers[i].realWidth+3) div 4) * self.layers[i].height)
-    for j in 0..<self.layers[i].wordMap.len:
-      s.read(self.layers[i].wordMap[j])
+    self.layers[i].tileCache.setLen(((self.layers[i].realWidth+3) div 4) * self.layers[i].height)
+    for j in 0..<self.layers[i].tileCache.len:
+      s.read(self.layers[i].tileCache[j])
   doAssert s.atEnd()
   s.close()
 
 proc writeWordMapData(s: Stream; level: Level) =
-  for i in 0..<8:
+  for i in 0..<LayerCount:
     if not level.layers[i].haveAnyTiles:
       continue
-    for j in 0..<level.layers[i].wordMap.len:
-      s.write(level.layers[i].wordMap[j])
+    for j in 0..<level.layers[i].tileCache.len:
+      s.write(level.layers[i].tileCache[j])
 
 proc parseIniEvent(value: string): EventInfo =
   let values = value.strip().split('|')
@@ -501,7 +665,7 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   doAssert magic == "LEVL"
   self.passwordHash = (s.readUint8().uint32 shl 16) or (s.readUint8().uint32 shl 8) or s.readUint8().uint32
 
-  if self.passwordHash != SecurityNoPassword:
+  if self.passwordHash != HashNoPassword:
     var hash = crc32(password) and 0xffffff
     if self.passwordHash != hash:
       echo "invalid password"
@@ -515,13 +679,16 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   self.version = if versionNum == 0x100: v_AGA elif versionNum <= 0x202: v1_23 else: v1_24
   self.fileSize = s.readUint32()
   self.checksum = s.readUint32()
+  echo "version: ", self.version
+
+  var streamSizes: array[StreamKind, StreamSize]
   var compressedLength: uint32 = 0
   for kind in StreamKind.items:
-    self.streamSizes[kind].packedSize = s.readUint32()
-    self.streamSizes[kind].unpackedSize = s.readUint32()
-    compressedLength += self.streamSizes[kind].packedSize
+    streamSizes[kind].packedSize = s.readUint32()
+    streamSizes[kind].unpackedSize = s.readUint32()
+    compressedLength += streamSizes[kind].packedSize
 
-  if compressedLength + 262 != self.fileSize:
+  if compressedLength + HeaderStructSize != self.fileSize:
     echo "filesize doesn't match!"
     return false
 
@@ -534,11 +701,11 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
     echo "checksums doesn't match!"
     return false
 
-  var sections: array[StreamKind, Stream]
+  var sections: array[StreamKind, StringStream]
   for kind in StreamKind.items:
-    var data = compressedData.readStr(self.streamSizes[kind].packedSize.int)
+    var data = compressedData.readStr(streamSizes[kind].packedSize.int)
     data = uncompress(data, dfZlib)
-    doAssert data.len.uint32 == self.streamSizes[kind].unpackedSize
+    doAssert data.len.uint32 == streamSizes[kind].unpackedSize
     sections[kind] = newStringStream(data)
 
   doAssert compressedData.atEnd()
@@ -550,14 +717,17 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   self.loadInfo(sections[LevelInfo])
 
   case self.securityEnvelope:
-  of SecurityStringPassworded: echo "level passworded"
-  of SecurityStringMLLE: echo "MLLE only level"
-  of SecurityStringInsecure: echo "level unprotected"
+  of SecurityPassworded: echo "level passworded"
+  of SecurityMLLE: echo "MLLE only level"
+  of SecurityDisabled: echo "level unprotected"
   else: echo "unknown security envelope: " & self.securityEnvelope.toHex(); return false
 
   self.loadEvents(sections[EventData])
   self.loadDictionary(sections[DictData])
   self.loadWordMap(sections[WordMapData])
+
+  self.rebuildMap()
+  self.rebuildTileCache(true)
 
   return true
 
@@ -580,13 +750,16 @@ proc save*(self: var Level; s: Stream) =
   var streams: array[StreamKind, string]
 
   let levelInfoStream = newStringStream("")
-  levelInfoStream.writeLevelInfo(self)
+  levelInfoStream.writeInfo(self)
   streams[LevelInfo] = levelInfoStream.data
   levelInfoStream.close()
 
-  streams[EventData] = newString(self.events.len * sizeof(Event))
-  if self.events.len > 0:
-    copyMem(streams[EventData][0].addr, self.events[0].addr, streams[EventData].len)
+  streams[EventData] = newString(self.layers[SpriteLayerNum].width.int * self.layers[SpriteLayerNum].height.int * sizeof(Event))
+  var eventOffset = 0
+  for row in self.events:
+    if row.len > 0:
+      copyMem(streams[EventData][eventOffset].addr, row[0].addr, row.len * sizeof(Event))
+    eventOffset += self.layers[SpriteLayerNum].width.int * sizeof(Event)
 
   let dictDataStream = newStringStream("")
   dictDataStream.writeDictData(self)
@@ -598,23 +771,24 @@ proc save*(self: var Level; s: Stream) =
   streams[WordMapData] = wordMapStream.data
   wordMapStream.close()
 
+  var streamSizes: array[StreamKind, StreamSize]
   var compressedData = ""
   for kind in StreamKind.items:
-    self.streamSizes[kind].unpackedSize = streams[kind].len.uint32
+    streamSizes[kind].unpackedSize = streams[kind].len.uint32
     streams[kind] = compress(streams[kind], DefaultCompression, dfZlib)
-    self.streamSizes[kind].packedSize = streams[kind].len.uint32
+    streamSizes[kind].packedSize = streams[kind].len.uint32
     compressedData &= streams[kind]
     streams[kind] = ""
 
-  self.fileSize = compressedData.len.uint32 + 262
+  self.fileSize = compressedData.len.uint32 + HeaderStructSize
   self.checksum = crc32(compressedData)
 
   s.write(self.fileSize)
   s.write(self.checksum)
 
   for kind in StreamKind.items:
-    s.write(self.streamSizes[kind].packedSize)
-    s.write(self.streamSizes[kind].unpackedSize)
+    s.write(streamSizes[kind].packedSize)
+    s.write(streamSizes[kind].unpackedSize)
 
   s.write(compressedData)
 
@@ -627,19 +801,18 @@ proc debug*(self: Level) =
 
   var ef = open("events.txt", fmWrite)
 
-  for i, event in self.events.pairs:
-    if event.eventId == 0: continue
-    let x = i mod self.layers[3].width.int
-    let y = i div self.layers[3].width.int
-    var paramTable = newSeq[tuple[name: string, value: int]](jcsEvents[event.eventId].params.len)
-    let params = parseEventParams(event)
-    for j, param in jcsEvents[event.eventId].params:
-      paramTable[j] = (name: param.name, value: params[j])
-    if event.eventId == 216:
-      let genEventId = params[0]
-      ef.writeLine $genEventId, ": " & jcsEvents[genEventId].name, "* (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
-    else:
-      ef.writeLine $event.eventId & ": " & jcsEvents[event.eventId].name & " (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
+  for y, row in self.events.pairs:
+    for x, event in row:
+      if event.eventId == 0: continue
+      var paramTable = newSeq[tuple[name: string, value: int]](jcsEvents[event.eventId].params.len)
+      let params = parseEventParams(event)
+      for j, param in jcsEvents[event.eventId].params:
+        paramTable[j] = (name: param.name, value: params[j])
+      if event.eventId == 216:
+        let genEventId = params[0]
+        ef.writeLine $genEventId, ": " & jcsEvents[genEventId].name, "* (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
+      else:
+        ef.writeLine $event.eventId & ": " & jcsEvents[event.eventId].name & " (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
 
   echo "saving"
   ef.close()
@@ -680,7 +853,9 @@ proc debug*(self: Level) =
   let dictColumns = 16
   var im = newImage(4*32*dictColumns,  32 * ((self.dictionary.len - 1) div dictColumns + 1))
   for i, word in self.dictionary.pairs:
-    for j, tile in word:
+    for j, rawtile in word:
+      if rawtile == 0: continue
+      let tile = self.parseTile(rawtile)
       if tile.tileId == 0 or tile.tileId >= self.animOffset: continue
       let tileOffset = tileset.tileOffsets[tile.tileId].image
       let tilesetTile = tileset.tileImage[tileOffset]
@@ -703,11 +878,12 @@ proc debug*(self: Level) =
     if not layer.haveAnyTiles: continue
     echo "drawing layer " & $i
     var im2 = newImage(32 * (layer.width.int),  int 32 * layer.height.int)
-    for j, wordId in layer.wordMap.pairs:
+    for j, wordId in layer.tileCache:
       if wordId == 0: continue
       let word = self.dictionary[wordId]
-      for t, tile in word.pairs:
-        if tile.tileId == 0: continue
+      for t, rawtile in word.pairs:
+        if rawtile == 0: continue
+        let tile = self.parseTile(rawtile)
         if ((j * 4 + t) mod layer.realWidth.int) >= layer.width.int: continue
         let tileId = if not tile.animated:
           tile.tileId
@@ -726,26 +902,59 @@ proc debug*(self: Level) =
             g: color[1],
             b: color[2]
           )
-    echo "saving"
-    im2.writeFile("layer-" & $i & ".png")
+    echo "saving 1"
+    im2.writeFile("layer-" & $i & "-tilecache.png")
+
+    im2 = newImage(32 * (layer.width.int),  int 32 * layer.height.int)
+    for y, row in layer.map:
+      for x, tile in row:
+        let tileId = if not tile.animated:
+          tile.tileId
+        else:
+          self.calculateAnimTile(tile.tileId).tileId
+        let tileOffset = tileset.tileOffsets[tileId].image
+        let tilesetTile = tileset.tileImage[tileOffset]
+        for k in 0..<1024:
+          let px = x * 32 + (k mod 32)
+          let py = y * 32 + (k div 32)
+          let index = tilesetTile[k]
+          if index == 0: continue
+          let color = tileset.palette[index]
+          im2[px, py] = ColorRGB(
+            r: color[0],
+            g: color[1],
+            b: color[2]
+          )
+    echo "saving 2"
+    im2.writeFile("layer-" & $i & "-map.png")
 
 
-proc test*(filename: string) =
+
+proc test*() =
   echo "loading events"
   loadJcsIni("JCS.ini")
 
+  echo "loading JCS new level"
+  var jcsNewLevel = Level()
+  doAssert jcsNewLevel.load("Untitled.j2l")
+  jcsNewLevel.save("level_untitled_saved.j2l")
+
+  echo "creating new level"
   var newLevel = NewLevel
   newLevel.setPassword("heya")
   newLevel.save("level_new.j2l")
 
+  echo "loading created new level"
   var level = Level()
   doAssert level.load("level_new.j2l", "heya")
   level.save("level_new_saved.j2l")
 
   doAssert readFile("level_new.j2l") == readFile("level_new_saved.j2l")
 
+  echo "loading official level"
   level = Level()
-  if level.load(filename, "heya"):
+  if level.load("ReworderEx2.j2l", "heya"):
     echo "saving level"
+    level.rebuildTileCache()
     level.save("level_saved.j2l")
     level.debug()
