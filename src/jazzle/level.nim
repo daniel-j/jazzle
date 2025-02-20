@@ -51,6 +51,264 @@ type
 
   StreamSize = tuple[packedSize, unpackedSize: uint32]
 
+  EventId* {.size: sizeof(uint8).} = enum
+    Event_None = 0
+    Event_OneWay = 1
+    Event_Hurt = 2
+    Event_Vine = 3
+    Event_Hook = 4
+    Event_Slide = 5
+    Event_H_Pole = 6
+    Event_V_Pole = 7
+    Event_AreaFlyOff = 8
+    Event_Ricochet = 9
+    Event_BeltRight = 10
+    Event_BeltLeft = 11
+    Event_AccBeltR = 12
+    Event_AccBeltL = 13
+    Event_StopEnemy = 14
+    Event_WindLeft = 15
+    Event_WindRight = 16
+    Event_AreaEndOfLevel = 17
+    Event_AreaWarpEOL = 18
+    Event_AreaRevertMorph = 19
+    Event_AreaFloatUp = 20
+    Event_TriggerRock = 21
+    Event_DimLight = 22
+    Event_SetLight = 23
+    Event_LimitXScroll = 24
+    Event_ResetLight = 25
+    Event_AreaWarpSecret = 26
+    Event_Echo = 27
+    Event_ActivateBoss = 28
+    Event_JazzLevelStart = 29
+    Event_SpazLevelStart = 30
+    Event_MultiplayerLevelStart = 31
+    Event_LoriLevelStart = 32
+    Event_FreezerAmmo3 = 33
+    Event_BouncerAmmo3 = 34
+    Event_SeekerAmmo3 = 35
+    Event_3WayAmmo3 = 36
+    Event_ToasterAmmo3 = 37
+    Event_TNTAmmo3 = 38
+    Event_Gun8Ammo3 = 39
+    Event_Gun9Ammo3 = 40
+    Event_StillTurtleshell = 41
+    Event_SwingingVine = 42
+    Event_Bomb = 43
+    Event_SilverCoin = 44
+    Event_GoldCoin = 45
+    Event_Guncrate = 46
+    Event_Carrotcrate = 47
+    Event_1Upcrate = 48
+    Event_Gembarrel = 49
+    Event_Carrotbarrel = 50
+    Event_1upbarrel = 51
+    Event_BombCrate = 52
+    Event_FreezerAmmo15 = 53
+    Event_BouncerAmmo15 = 54
+    Event_SeekerAmmo15 = 55
+    Event_3WayAmmo15 = 56
+    Event_ToasterAmmo15 = 57
+    Event_TNT_Object = 58
+    Event_Airboard = 59
+    Event_FrozenGreenSpring = 60
+    Event_GunFastFire = 61
+    Event_SpringCrate = 62
+    Event_RedGem1 = 63
+    Event_GreenGem1 = 64
+    Event_BlueGem1 = 65
+    Event_PurpleGem1 = 66
+    Event_SuperRedGem = 67
+    Event_Birdy = 68
+    Event_GunBarrel = 69
+    Event_GemCrate = 70
+    Event_Jazz_Spaz = 71
+    Event_CarrotEnergy1 = 72
+    Event_FullEnergy = 73
+    Event_FireShield = 74
+    Event_WaterShield = 75
+    Event_LightningShield = 76
+    Event_Maxweapon = 77
+    Event_Autofire = 78
+    Event_FastFeet = 79
+    Event_ExtraLive = 80
+    Event_EndofLevelsignpost = 81
+    Event_82 = 82
+    Event_Savepointsignpost = 83
+    Event_BonusLevelsignpost = 84
+    Event_RedSpring = 85
+    Event_GreenSpring = 86
+    Event_BlueSpring = 87
+    Event_Invincibility = 88
+    Event_ExtraTime = 89
+    Event_FreezeEnemies = 90
+    Event_HorRedSpring = 91
+    Event_HorGreenSpring = 92
+    Event_HorBlueSpring = 93
+    Event_MorphIntoBird = 94
+    Event_SceneryTriggerCrate = 95
+    Event_Flycarrot = 96
+    Event_RectGemRed = 97
+    Event_RectGemGreen = 98
+    Event_RectGemBlue = 99
+    Event_TufTurt = 100
+    Event_TufBoss = 101
+    Event_LabRat = 102
+    Event_Dragon = 103
+    Event_Lizard = 104
+    Event_Bee = 105
+    Event_Rapier = 106
+    Event_Sparks = 107
+    Event_Bat = 108
+    Event_Sucker = 109
+    Event_Caterpillar = 110
+    Event_Cheshire1 = 111
+    Event_Cheshire2 = 112
+    Event_Hatter = 113
+    Event_BilsyBoss = 114
+    Event_Skeleton = 115
+    Event_DoggyDogg = 116
+    Event_NormTurtle = 117
+    Event_Helmut = 118
+    Event_Leaf = 119
+    Event_Demon = 120
+    Event_Fire = 121
+    Event_Lava = 122
+    Event_DragonFly = 123
+    Event_Monkey = 124
+    Event_FatChick = 125
+    Event_Fencer = 126
+    Event_Fish = 127
+    Event_Moth = 128
+    Event_Steam = 129
+    Event_RotatingRock = 130
+    Event_BlasterPowerUp = 131
+    Event_BouncyPowerUp = 132
+    Event_IcegunPowerUp = 133
+    Event_SeekPowerUp = 134
+    Event_RFPowerUp = 135
+    Event_ToasterPowerUP = 136
+    Event_PIN_LeftPaddle = 137
+    Event_PIN_RightPaddle = 138
+    Event_PIN_500Bump = 139
+    Event_PIN_CarrotBump = 140
+    Event_Apple = 141
+    Event_Banana = 142
+    Event_Cherry = 143
+    Event_Orange = 144
+    Event_Pear = 145
+    Event_Pretzel = 146
+    Event_Strawberry = 147
+    Event_SteadyLight = 148
+    Event_PulzeLight = 149
+    Event_FlickerLight = 150
+    Event_QueenBoss = 151
+    Event_FloatingSucker = 152
+    Event_Bridge = 153
+    Event_Lemon = 154
+    Event_Lime = 155
+    Event_Thing = 156
+    Event_Watermelon = 157
+    Event_Peach = 158
+    Event_Grapes = 159
+    Event_Lettuce = 160
+    Event_Eggplant = 161
+    Event_Cucumb = 162
+    Event_SoftDrink = 163
+    Event_SodaPop = 164
+    Event_Milk = 165
+    Event_Pie = 166
+    Event_Cake = 167
+    Event_Donut = 168
+    Event_Cupcake = 169
+    Event_Chips = 170
+    Event_Candy = 171
+    Event_Chocbar = 172
+    Event_Icecream = 173
+    Event_Burger = 174
+    Event_Pizza = 175
+    Event_Fries = 176
+    Event_ChickenLeg = 177
+    Event_Sandwich = 178
+    Event_Taco = 179
+    Event_Weenie = 180
+    Event_Ham = 181
+    Event_Cheese = 182
+    Event_FloatLizard = 183
+    Event_StandMonkey = 184
+    Event_DestructScenery = 185
+    Event_DestructSceneryBOMB = 186
+    Event_CollapsingScenery = 187
+    Event_ButtStompScenery = 188
+    Event_InvisibleGemStomp = 189
+    Event_Raven = 190
+    Event_TubeTurtle = 191
+    Event_GemRing = 192
+    Event_SmallTree = 193
+    Event_AmbientSound = 194
+    Event_Uterus = 195
+    Event_Crab = 196
+    Event_Witch = 197
+    Event_RocketTurtle = 198
+    Event_Bubba = 199
+    Event_Devildevanboss = 200
+    Event_Devan_RobotBoss = 201
+    Event_Robot_RobotBoss = 202
+    Event_Carrotuspole = 203
+    Event_Psychpole = 204
+    Event_Diamonduspole = 205
+    Event_SuckerTube = 206
+    Event_Text = 207
+    Event_WaterLevel = 208
+    Event_FruitPlatform = 209
+    Event_BollPlatform = 210
+    Event_GrassPlatform = 211
+    Event_PinkPlatform = 212
+    Event_SonicPlatform = 213
+    Event_SpikePlatform = 214
+    Event_SpikeBoll = 215
+    Event_Generator = 216
+    Event_Eva = 217
+    Event_Bubbler = 218
+    Event_TNTPowerup = 219
+    Event_Gun8Powerup = 220
+    Event_Gun9Powerup = 221
+    Event_MorphFrog = 222
+    Event_3DSpikeBoll = 223
+    Event_Springcord = 224
+    Event_Bees = 225
+    Event_Copter = 226
+    Event_LaserShield = 227
+    Event_Stopwatch = 228
+    Event_JunglePole = 229
+    Event_Warp = 230
+    Event_BigRock = 231
+    Event_BigBox = 232
+    Event_WaterBlock = 233
+    Event_TriggerScenery = 234
+    Event_BollyBoss = 235
+    Event_Butterfly = 236
+    Event_BeeBoy = 237
+    Event_Snow = 238
+    Event_239 = 239
+    Event_WarpTarget = 240
+    Event_TweedleBoss = 241
+    Event_AreaId = 242
+    Event_243 = 243
+    Event_CTFBaseFlag = 244
+    Event_NoFireZone = 245
+    Event_TriggerZone = 246
+    Event_XmasBilsyBoss = 247
+    Event_XmasNormTurtle = 248
+    Event_XmasLizard = 249
+    Event_XmasFloatLizard = 250
+    Event_AddonDOG = 251
+    Event_AddonSparks = 252
+    Event_253 = 253
+    Event_254 = 254
+    Event_MCE = 255
+
   EventType* = enum
     Normal
     Easy
@@ -58,7 +316,7 @@ type
     OnlyMultiplayer
 
   Event* {.packed.} = object
-    eventId*: uint8
+    eventId*: EventId
     eventType* {.bitsize: 2.}: EventType
     illuminate* {.bitsize: 1.}: bool
     isActive* {.bitsize: 1}: bool
@@ -71,11 +329,17 @@ type
     label*: string
     params*: seq[tuple[name: string, size: int]]
 
-  LevelBottom* = enum
+  LevelBottomMode* = enum
     ## JJ2+ feature
     Default
-    SolidFloor
     DeathPit
+    SolidFloor
+
+  TeamTriggerState* = enum
+    ## JJ2+ feature
+    Disabled
+    BlueOff
+    RedOff
 
   RawTile* = uint16
 
@@ -187,9 +451,15 @@ type
     dictionary*: seq[RawWord]
 
     # JJ2+ features
-    levelBottom: LevelBottom
+    levelBottomMode*: LevelBottomMode
+    teamTriggerState*: TeamTriggerState
+    teamTriggerId*: int
+    serverTriggerEnabled*: bool
+    serverTriggerId*: int
+    overtimeTriggerEnabled*: bool
+    overTimeTriggerId*: int
 
-var jcsEvents: array[256, EventInfo]
+var jcsEvents: array[EventId, EventInfo]
 
 proc maxTiles*(self: Level): int =
   if self.version == v1_23:
@@ -274,6 +544,50 @@ proc calculateAnimTile*(self: Level; animId: uint16; hflipped: bool = false; vfl
   result.hflipped = bool result.hflipped.ord xor hflipped.ord
   result.vflipped = bool result.vflipped.ord xor vflipped.ord
 
+proc parseIniEvent(value: string): EventInfo =
+  let values = value.strip().split('|')
+  for i, val in values:
+    case i:
+    of 0: result.name = val.strip()
+    of 1: result.onlySingleplayer = val == "-"
+    of 2: result.category = val.strip()
+    of 3: result.label = val.strip()
+    of 4: result.label = (result.label & "\n" & val).strip()
+    else:
+      let params = val.split(":")
+      result.params.add((params[0].strip(), parseInt(params[1].strip())))
+
+proc loadJcsIni*(filename: string = "JCS.ini") =
+  let jcsini = loadConfig(filename)
+  for eventId in EventId:
+    jcsEvents[eventId] = parseIniEvent(jcsini.getSectionValue("Events", $eventId.ord))
+
+proc params*(event: Event): seq[int] =
+  let jcsEvent = jcsEvents[event.eventId]
+  var offset = 0
+  result.setLen(jcsEvent.params.len)
+  for i in 0..<jcsEvent.params.len:
+    let signed = jcsEvent.params[i].size < 0
+    let size = abs(jcsEvent.params[i].size)
+    let shift = 1 shl size
+    result[i] = (event.data.int shr offset) and (shift - 1)
+    if signed and result[i].testBit(size - 1):
+      result[i] =  result[i] - shift
+    offset += size
+
+proc `params=`*(event: var Event; params: seq[int]) =
+  event.data = 0
+  let jcsEvent = jcsEvents[event.eventId]
+  var offset = 0
+  for i in 0..<min(jcsEvent.params.len, params.len):
+    let p = jcsEvent.params[i]
+    # let signed = p.size < 0
+    let size = abs(p.size)
+    let shift = 1 shl size
+    let bits = uint32 params[i] and (shift - 1)
+    event.data = event.data or (bits shl offset)
+    offset += size
+
 proc setPassword*(self: var Level; password: string) =
   self.securityEnvelope = SecurityPassworded
   self.securityEnabled = true
@@ -331,7 +645,7 @@ proc rebuildTileCache*(self: var Level; saveOverrides: bool = false) =
             tile.hflipped = false
             tile.vflipped = false
           rawword[k] = self.rawTile(tile[])
-          if i == SpriteLayerNum and tile.animated and x + k < layer.width.int and self.events[y][x + k].eventId > 0:
+          if i == SpriteLayerNum and tile.animated and x + k < layer.width.int and self.events[y][x + k].eventId != Event_None:
             hasAnimAndEvent = true
         if hasAnimAndEvent:
           let pos = dictionary.len
@@ -603,29 +917,73 @@ proc loadEvents(self: var Level; s: StringStream) =
   doAssert s.atEnd()
   s.close()
 
-  let eventBottomRight = self.events[self.layers[SpriteLayerNum].height - 1][self.layers[SpriteLayerNum].width - 1].addr
-  if eventBottomRight.eventId == 255:
-    self.levelBottom = DeathPit
-    eventBottomRight.eventId = 0
-  elif eventBottomRight.eventId == 1:
-    self.levelBottom = SolidFloor
-    eventBottomRight.eventId = 0
-  else:
-    self.levelBottom = LevelBottom.Default
+  if self.layers[SpriteLayerNum].width >= 4 and self.layers[SpriteLayerNum].height >= 2:
+    let bottomRightEvent = self.events[self.layers[SpriteLayerNum].height - 1][self.layers[SpriteLayerNum].width - 1].addr
+    if bottomRightEvent.eventId == Event_MCE:
+      self.levelBottomMode = DeathPit
+      bottomRightEvent[].reset()
+    elif bottomRightEvent.eventId == Event_OneWay:
+      self.levelBottomMode = SolidFloor
+      bottomRightEvent[].reset()
+    else:
+      self.levelBottomMode = Default
+
+    let teamTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][0].addr
+    let serverTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][1].addr
+    let overtimeTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][2].addr
+    if teamTrigEvent.eventId == Event_TriggerZone:
+      let params = teamTrigEvent[].params()
+      self.teamTriggerState = if params[1] == 0: BlueOff else: RedOff
+      self.teamTriggerId = params[0]
+      teamTrigEvent[].reset()
+    else:
+      self.teamTriggerState = Disabled
+
+    if serverTrigEvent.eventId == Event_TriggerZone:
+      let params = serverTrigEvent[].params()
+      self.serverTriggerEnabled = true
+      self.serverTriggerId = params[0]
+      serverTrigEvent[].reset()
+    else:
+      self.serverTriggerEnabled = false
+
+    if overtimeTrigEvent.eventId == Event_TriggerZone:
+      let params = overtimeTrigEvent[].params()
+      self.overtimeTriggerEnabled = true
+      self.overtimeTriggerId = params[0]
+      overtimeTrigEvent[].reset()
+    else:
+      self.overtimeTriggerEnabled = false
 
 proc writeEvents(self: var Level): string =
-  let eventBottomRight = self.events[self.layers[SpriteLayerNum].height - 1][self.layers[SpriteLayerNum].width - 1].addr
-  if eventBottomRight.eventId == 0:
-    case self.levelBottom:
-    of DeathPit: eventBottomRight[] = Event(eventId: 255)
-    of SolidFloor: eventBottomRight[] = Event(eventId: 1)
-    else: discard
+  if self.layers[SpriteLayerNum].width >= 4 and self.layers[SpriteLayerNum].height >= 2:
+    let bottomRightEvent = self.events[self.layers[SpriteLayerNum].height - 1][self.layers[SpriteLayerNum].width - 1].addr
+    if bottomRightEvent.eventId in [Event_None, Event_OneWay, Event_MCE]:
+      case self.levelBottomMode:
+      of DeathPit: bottomRightEvent[] = Event(eventId: Event_MCE)
+      of SolidFloor: bottomRightEvent[] = Event(eventId: Event_OneWay)
+      else: discard
+
+    let teamTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][0].addr
+    let serverTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][1].addr
+    let overtimeTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][2].addr
+    if self.teamTriggerState != Disabled and teamTrigEvent.eventId in [Event_None, Event_TriggerZone]:
+      teamTrigEvent[] = Event(eventId: Event_TriggerZone)
+      teamTrigEvent[].params = @[self.teamTriggerId, if self.teamTriggerState == BlueOff: 0 else: 1]
+
+    if self.serverTriggerEnabled and serverTrigEvent.eventId in [Event_None, Event_TriggerZone]:
+      serverTrigEvent[] = Event(eventId: Event_TriggerZone)
+      serverTrigEvent[].params = @[self.serverTriggerId]
+
+    if self.overtimeTriggerEnabled and overtimeTrigEvent.eventId in [Event_None, Event_TriggerZone]:
+      overtimeTrigEvent[] = Event(eventId: Event_TriggerZone)
+      overtimeTrigEvent[].params = @[self.overtimeTriggerId]
 
   result = newString(self.layers[SpriteLayerNum].width.int * self.layers[SpriteLayerNum].height.int * sizeof(Event))
   var eventOffset = 0
   for row in self.events:
     if row.len > 0:
-      copyMem(result[0].addr, row[0].addr, row.len * sizeof(Event))
+      copyMem(result[eventOffset].addr, row[0].addr, row.len * sizeof(Event))
     eventOffset += self.layers[SpriteLayerNum].width.int * sizeof(Event)
 
 proc loadDictionary(self: var Level; s: StringStream) =
@@ -657,38 +1015,6 @@ proc writeWordMapData(s: Stream; level: Level) =
       continue
     for j in 0..<level.layers[i].tileCache.len:
       s.write(level.layers[i].tileCache[j])
-
-proc parseIniEvent(value: string): EventInfo =
-  let values = value.strip().split('|')
-  for i, val in values:
-    case i:
-    of 0: result.name = val.strip()
-    of 1: result.onlySingleplayer = val == "-"
-    of 2: result.category = val.strip()
-    of 3: result.label = val.strip()
-    of 4: result.label = (result.label & "\n" & val).strip()
-    else:
-      let params = val.split(":")
-      result.params.add((params[0].strip(), parseInt(params[1].strip())))
-
-proc loadJcsIni(filename: string) =
-  let jcsini = loadConfig("JCS.ini")
-  for i in 0..<jcsEvents.len:
-    jcsEvents[i] = parseIniEvent(jcsini.getSectionValue("Events", $i))
-
-proc parseEventParams*(event: Event): seq[int] =
-  let jcsEvent = jcsEvents[event.eventId.int]
-  var offset = 0
-  result.setLen(jcsEvent.params.len)
-  for i in 0..<jcsEvent.params.len:
-    let signed = jcsEvent.params[i].size < 0
-    let size = abs(jcsEvent.params[i].size)
-    let shift = 1 shl size
-    result[i] = (event.data.int shr offset) and (shift - 1)
-    if signed and result[i].testBit(size - 1):
-      result[i] =  result[i] - shift
-    offset += size
-
 
 proc load*(self: var Level; s: Stream; password: string = ""): bool =
   self.reset()
@@ -832,13 +1158,13 @@ proc debug*(self: Level) =
 
   for y, row in self.events.pairs:
     for x, event in row:
-      if event.eventId == 0: continue
+      if event.eventId == Event_None: continue
       var paramTable = newSeq[tuple[name: string, value: int]](jcsEvents[event.eventId].params.len)
-      let params = parseEventParams(event)
+      let params = event.params()
       for j, param in jcsEvents[event.eventId].params:
         paramTable[j] = (name: param.name, value: params[j])
-      if event.eventId == 216:
-        let genEventId = params[0]
+      if event.eventId == Event_Generator:
+        let genEventId = cast[EventId](params[0])
         ef.writeLine $genEventId, ": " & jcsEvents[genEventId].name, "* (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
       else:
         ef.writeLine $event.eventId & ": " & jcsEvents[event.eventId].name & " (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
@@ -957,8 +1283,6 @@ proc debug*(self: Level) =
     echo "saving 2"
     im2.writeFile("layer-" & $i & "-map.png")
 
-
-
 proc test*() =
   echo "loading events"
   loadJcsIni("JCS.ini")
@@ -971,6 +1295,13 @@ proc test*() =
   echo "creating new level"
   var newLevel = NewLevel
   newLevel.setPassword("heya")
+  newLevel.teamTriggerState = BlueOff
+  newLevel.teamTriggerId = 1
+  newLevel.serverTriggerEnabled = true
+  newLevel.serverTriggerId = 2
+  newLevel.overtimeTriggerEnabled = true
+  newLevel.overtimeTriggerId = 3
+  newLevel.levelBottomMode = DeathPit
   newLevel.save("level_new.j2l")
 
   echo "loading created new level"
