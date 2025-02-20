@@ -71,6 +71,12 @@ type
     label*: string
     params*: seq[tuple[name: string, size: int]]
 
+  LevelBottom* = enum
+    ## JJ2+ feature
+    Default
+    SolidFloor
+    DeathPit
+
   RawTile* = uint16
 
   Tile* = object
@@ -179,6 +185,9 @@ type
     anims*: seq[AnimatedTile]
 
     dictionary*: seq[RawWord]
+
+    # JJ2+ features
+    levelBottom: LevelBottom
 
 var jcsEvents: array[256, EventInfo]
 
@@ -594,6 +603,31 @@ proc loadEvents(self: var Level; s: StringStream) =
   doAssert s.atEnd()
   s.close()
 
+  let eventBottomRight = self.events[self.layers[SpriteLayerNum].height - 1][self.layers[SpriteLayerNum].width - 1].addr
+  if eventBottomRight.eventId == 255:
+    self.levelBottom = DeathPit
+    eventBottomRight.eventId = 0
+  elif eventBottomRight.eventId == 1:
+    self.levelBottom = SolidFloor
+    eventBottomRight.eventId = 0
+  else:
+    self.levelBottom = LevelBottom.Default
+
+proc writeEvents(self: var Level): string =
+  let eventBottomRight = self.events[self.layers[SpriteLayerNum].height - 1][self.layers[SpriteLayerNum].width - 1].addr
+  if eventBottomRight.eventId == 0:
+    case self.levelBottom:
+    of DeathPit: eventBottomRight[] = Event(eventId: 255)
+    of SolidFloor: eventBottomRight[] = Event(eventId: 1)
+    else: discard
+
+  result = newString(self.layers[SpriteLayerNum].width.int * self.layers[SpriteLayerNum].height.int * sizeof(Event))
+  var eventOffset = 0
+  for row in self.events:
+    if row.len > 0:
+      copyMem(result[0].addr, row[0].addr, row.len * sizeof(Event))
+    eventOffset += self.layers[SpriteLayerNum].width.int * sizeof(Event)
+
 proc loadDictionary(self: var Level; s: StringStream) =
   self.dictionary.setLen(s.data.len div sizeof(RawWord))
   for word in self.dictionary.mitems:
@@ -754,12 +788,7 @@ proc save*(self: var Level; s: Stream) =
   streams[LevelInfo] = levelInfoStream.data
   levelInfoStream.close()
 
-  streams[EventData] = newString(self.layers[SpriteLayerNum].width.int * self.layers[SpriteLayerNum].height.int * sizeof(Event))
-  var eventOffset = 0
-  for row in self.events:
-    if row.len > 0:
-      copyMem(streams[EventData][eventOffset].addr, row[0].addr, row.len * sizeof(Event))
-    eventOffset += self.layers[SpriteLayerNum].width.int * sizeof(Event)
+  streams[EventData] = self.writeEvents()
 
   let dictDataStream = newStringStream("")
   dictDataStream.writeDictData(self)
@@ -953,7 +982,7 @@ proc test*() =
 
   echo "loading official level"
   level = Level()
-  if level.load("ReworderEx2.j2l", "heya"):
+  if level.load("Tube2.j2l", "heya"):
     echo "saving level"
     level.rebuildTileCache()
     level.save("level_saved.j2l")
