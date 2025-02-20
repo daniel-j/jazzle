@@ -339,7 +339,7 @@ type
     ## JJ2+ feature
     Disabled
     BlueOff
-    RedOff
+    BlueOn
 
   RawTile* = uint16
 
@@ -933,7 +933,7 @@ proc loadEvents(self: var Level; s: StringStream) =
     let overtimeTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][2].addr
     if teamTrigEvent.eventId == Event_TriggerZone:
       let params = teamTrigEvent[].params()
-      self.teamTriggerState = if params[1] == 0: BlueOff else: RedOff
+      self.teamTriggerState = if params[1] == 0: BlueOff else: BlueOn
       self.teamTriggerId = params[0]
       teamTrigEvent[].reset()
     else:
