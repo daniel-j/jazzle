@@ -26,6 +26,7 @@ var paletteTexture: Texture2D
 var tilesetImage: Texture2D
 var tilesetIndex10Texture: Texture2D
 var tilesetIndex64Texture: Texture2D
+var eventsTexture: Texture2D
 var layerTextures: seq[Texture2D]
 var tilesetMapData: seq[uint16]
 var animGrid: Texture2D
@@ -254,12 +255,14 @@ proc draw() =
       shaderMode(shader):
         drawTiles(layerTextures[i], pos, scrollParallaxView, layer.properties.tileWidth, layer.properties.tileHeight)
 
+
       drawRectangleLines(Rectangle(
         x: scrollParallaxView.x + scrollParallaxView.width / 2 - viewSize.x / 2 - 1,
         y: scrollParallaxView.y + scrollParallaxView.height / 2 - viewSize.y / 2 - 1,
         width: viewSize.x + 2,
         height: viewSize.y + 2
       ), 1, White)
+    drawTexture(eventsTexture, scrollParallaxView.x.int32, scrollParallaxView.y.int32, White)
 
   case showMenu(mainMenu, 20):
   of MenuNone: discard
@@ -282,6 +285,8 @@ proc updateDrawFrame {.cdecl.} =
   draw()
 
 proc main =
+
+  loadJcsIni("assets/JCS.ini")
 
   # initialize window
   const f = flags(WindowResizable, VsyncHint)
@@ -312,6 +317,14 @@ proc main =
     let icon = loadTexture("assets/icon.png")
     drawTexture(icon, getRenderWidth() div 2 - icon.width div 2, getRenderHeight() div 2 - icon.height + 30, White)
     endDrawing()
+
+  var eventsRenderTexture = loadRenderTexture(32 * 16, 32 * 16)
+  textureMode(eventsRenderTexture):
+    for i, evInfo in jcsEvents:
+      let x = (i.ord mod 16) * 32
+      let y = (i.ord div 16) * 32
+      drawText(evInfo.label, x.int32, y.int32, 12, White)
+  eventsTexture = move eventsRenderTexture.texture
 
   currentLevel = Level()
   if currentLevel.load(levelFile):
