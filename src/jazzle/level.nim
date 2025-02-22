@@ -457,7 +457,7 @@ type
     overtimeTriggerEnabled*: bool
     overTimeTriggerId*: int
 
-var jcsEvents: array[EventId, EventInfo]
+var jcsEvents*: array[EventId, EventInfo]
 
 proc maxTiles*(self: Level): int =
   if self.version == v1_23:
