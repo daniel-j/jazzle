@@ -23,9 +23,17 @@ mergeInto(LibraryManager.library, {
                     Module._free(ptrData);
                     Module._free(ptrName);
                 })
-            })
+            });
         }).catch(function (err) {
             console.log("file pick aborted", err);
         });
+    },
+    openSavePicker: function (filenamePtr, filenameLen, dataPtr, dataLen) {
+        let filename = Module.UTF8ToString(filenamePtr, filenameLen);
+        let sharedDataBuffer = new Uint8Array(Module.HEAPU8.buffer, dataPtr, dataLen);
+
+        console.log(filename);
+        let blob = new Blob([sharedDataBuffer.slice()], { type: "application/x-jazz2-level" });
+        saveAs(blob, filename);
     }
 });

@@ -406,6 +406,7 @@ type
     map*: seq[seq[Tile]]
 
   Level* = object
+    filename*: string
     title*: string
     version*: GameVersion
     hideInHomecooked*: bool
@@ -1165,7 +1166,8 @@ proc load*(self: var Level; filename: string; password: string = ""): bool =
   self.reset()
   let s = newFileStream(filename)
   defer: s.close()
-  self.load(s, password)
+  result = self.load(s, password)
+  self.filename = filename
 
 proc save*(self: var Level; s: Stream) =
   s.write(DataFileCopyright)

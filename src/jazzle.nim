@@ -21,12 +21,11 @@ type
 
 var lastCurrentMonitor: int32 = 0
 var currentTileset: Tileset
-var currentLevel: Level
+var currentLevel = NewLevel
 var paletteTexture: Texture2D
 var tilesetImage: Texture2D
 var tilesetIndex10Texture: Texture2D
 var tilesetIndex64Texture: Texture2D
-var eventsTexture: Texture2D
 var layerTextures: seq[Texture2D]
 var tilesetMapData: seq[uint16]
 var animGrid: Texture2D
@@ -42,6 +41,7 @@ var lastMousePos = Vector2()
 var scrollParallaxPos = Rectangle(x: 335, y: 20, width: 1, height: 1)
 var scrollParallaxView = Rectangle()
 var scrollParallax = Vector2()
+var showParallaxEvents = true
 
 var scrollTilesetPos = Rectangle(x: 0, y: 20, width: 334, height: 1)
 var scrollTilesetView = Rectangle()
@@ -56,6 +56,7 @@ type
     MenuNone
     MenuFileNew
     MenuFileOpen
+    MenuFileSave
     MenuLevelProperties
 
   MainMenu = Menu[MainMenuValues]
@@ -65,15 +66,16 @@ var mainMenu = MainMenu(items: @[
     text: "_File",
     width: 100,
     items: @[
-      MainMenu(text: " _New", id: MenuFileNew),
-      MainMenu(text: "#05# _Open", id: MenuFileOpen)
+      MainMenu(text: "#08# New", id: MenuFileNew),
+      MainMenu(text: "#01# Open", id: MenuFileOpen),
+      MainMenu(text: "#02# Save", id: MenuFileSave)
     ]
   ),
   MainMenu(
     text: "_Edit",
     width: 200,
     items: @[
-      MainMenu(text: "#56# Level _properties", id: MenuLevelProperties)
+      MainMenu(text: "#59# Level properties", id: MenuLevelProperties)
     ]
   )
 ])
@@ -85,7 +87,7 @@ proc loadLevelData(filename: string) =
   echo "trying to load file ", filename
   if currentLevel.load(filename):
     echo "load successful"
-    echo currentLevel
+    echo currentLevel.filename
   else:
     echo "couldnt load level!"
 
@@ -96,6 +98,7 @@ when defined(emscripten):
     {.pragma: EMSCRIPTEN_KEEPALIVE, cdecl, exportc, codegenDecl: "__attribute__((used)) $# $#$#".}
 
   proc openFilePicker() {.importc.}
+  proc openSavePicker(filename: cstring; filenameLen: int; data: cstring; dataLen: int) {.importc.}
 
   proc openFileCompleted(name: cstring; length: int; data: ptr uint8) {.EMSCRIPTEN_KEEPALIVE.} =
     echo "file completed", name
@@ -106,11 +109,23 @@ when defined(emscripten):
     writeFile("/uploads/" & $name, str)
     loadLevelData("/uploads/" & $name)
 
+  proc saveFile() =
+    echo currentLevel.filename
+    echo extractFilename(currentLevel.filename)
+    currentLevel.save("/level_saved.j2l")
+    let data = readFile("/level_saved.j2l")
+    let filename = extractFilename(currentLevel.filename)
+    echo filename
+    openSavePicker(filename.cstring, filename.len, data.cstring, data.len)
+
 else:
   {.pragma: EMSCRIPTEN_KEEPALIVE, cdecl, exportc.}
 
   proc openFilePicker() =
     discard
+
+  proc saveFile() =
+    currentLevel.save("level_saved.j2l")
 
 
 
@@ -171,6 +186,57 @@ proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileW
     rlgl.texCoord2f((source.x + source.width)/width, source.y/height)
     rlgl.vertex2f(right, top)
   rlgl.setTexture(0)
+
+proc drawParallaxEvents(viewSize: Vector2; alignment: Vector2) =
+  let layer = currentLevel.layers[3].addr
+
+  let speed = Vector2(
+    x: layer.speedX / 65536,
+    y: layer.speedY / 65536
+  )
+  let heightMultiplier = (layer.properties.limitVisibleRegion and not layer.properties.tileHeight).float + 1
+  var pos = Vector2(
+    x: speed.x * (scrollParallax.x - alignment.x) + alignment.x,
+    y: speed.y * (scrollParallax.y - alignment.y) + alignment.y * heightMultiplier
+  )
+  pos.x = floor(pos.x + scrollParallaxView.width / 2 - viewSize.x / 2)
+  pos.y = floor(pos.y + scrollParallaxView.height / 2 - viewSize.y / 2)
+  let labelStye = guiGetStyle(Label, TextColorNormal)
+  let alignment = guiGetStyle(Label, TextAlignment)
+  let textSize = guiGetStyle(GuiControl.Default, TextSize)
+  guiSetStyle(Label, TextColorNormal, cast[int32](0xffffffff'u32))
+  guiSetStyle(Label, TextAlignment, Center)
+  guiSetStyle(Default, TextSize, 10)
+  for y in 0..<layer.height:
+    for x in 0..<layer.width:
+      let evt = currentLevel.events[y][x]
+      if evt.eventId == Event_None: continue
+      let isGenerator = evt.eventId == Event_Generator
+      var eventId = evt.eventId
+      if isGenerator:
+        let params = evt.params
+        eventId = params[0].EventId
+      let text = jcsEvents[eventId].label
+      let rect = Rectangle(
+        x: scrollParallaxView.x + pos.x + x.float * 32,
+        y: scrollParallaxView.y + pos.y + y.float * 32,
+        width: 32,
+        height: 32
+      )
+      let rectOuter = Rectangle(
+        x: rect.x - 6,
+        y: rect.y,
+        width: rect.width + 12,
+        height: rect.height
+      )
+      drawRectangle(rect, Color(r: 0, g: 0, b: 0, a: 127))
+      if isGenerator:
+        drawTriangle(Vector2(x: rect.x, y: rect.y), Vector2(x: rect.x, y: rect.y + 7), Vector2(x: rect.x + 7, y: rect.y), Color(r: 255, g: 255, b: 255, a: 140))
+        drawTriangleLines(Vector2(x: rect.x, y: rect.y), Vector2(x: rect.x, y: rect.y + 9), Vector2(x: rect.x + 9, y: rect.y), Black)
+      label(rectOuter, text)
+  guiSetStyle(Label, TextAlignment, alignment)
+  guiSetStyle(Label, TextColorNormal, labelStye)
+  guiSetStyle(Default, TextSize, textSize)
 
 proc update() =
   let t = getTime()
@@ -255,20 +321,24 @@ proc draw() =
       shaderMode(shader):
         drawTiles(layerTextures[i], pos, scrollParallaxView, layer.properties.tileWidth, layer.properties.tileHeight)
 
-
       drawRectangleLines(Rectangle(
         x: scrollParallaxView.x + scrollParallaxView.width / 2 - viewSize.x / 2 - 1,
         y: scrollParallaxView.y + scrollParallaxView.height / 2 - viewSize.y / 2 - 1,
         width: viewSize.x + 2,
         height: viewSize.y + 2
       ), 1, White)
-    drawTexture(eventsTexture, scrollParallaxView.x.int32, scrollParallaxView.y.int32, White)
+
+    if showParallaxEvents:
+      drawParallaxEvents(viewSize, alignment)
+
+  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 60 - 2, y: scrollParallaxPos.y + 2, width: 60, height: 20), "Events", showParallaxEvents)
 
   case showMenu(mainMenu, 20):
   of MenuNone: discard
   of MenuFileNew: discard
   of MenuFileOpen: openFilePicker()
   of MenuLevelProperties: discard
+  of MenuFileSave: saveFile()
 
   # discard GuiButton(Rectangle(x: 25, y: 255, width: 125, height: 30), GuiIconText(ICON_FILE_SAVE.cint, "Save File".cstring))
   # let mbox = GuiMessageBox(Rectangle(x: 85, y: 70, width: 250, height: 100), "#191#Message Box", "Hi! This is a message!", "Nice;Cool")
@@ -318,16 +388,9 @@ proc main =
     drawTexture(icon, getRenderWidth() div 2 - icon.width div 2, getRenderHeight() div 2 - icon.height + 30, White)
     endDrawing()
 
-  var eventsRenderTexture = loadRenderTexture(32 * 16, 32 * 16)
-  textureMode(eventsRenderTexture):
-    for i, evInfo in jcsEvents:
-      let x = (i.ord mod 16) * 32
-      let y = (i.ord div 16) * 32
-      drawText(evInfo.label, x.int32, y.int32, 12, White)
-  eventsTexture = move eventsRenderTexture.texture
-
   currentLevel = Level()
   if currentLevel.load(levelFile):
+    echo "loaded ", currentLevel.filename
     layerTextures.setLen(8)
     for i in 0 ..< 8:
       let layer = currentLevel.layers[i].addr
