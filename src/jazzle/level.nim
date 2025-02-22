@@ -5,6 +5,7 @@ import pixie
 import zippy
 import zippy/crc
 import parseini
+import std/sets
 import ./common
 import ./tileset
 
@@ -20,6 +21,7 @@ const
   SecurityPassworded = 0xBA00BE00'u32
   SecurityMLLE = 0xBACABEEF'u32
   SecurityDisabled = 0x00000000'u32
+  SecurityEnabled = 0b1111'u8
 
   LayerCount* = 8
   SpriteLayerNum* = 3
@@ -353,11 +355,6 @@ type
   RawWord* = array[4, RawTile]
   WordTiles* = array[4, Tile]
 
-  WordOverride* = object
-    x*: int
-    y*: int
-    wordId*: WordId
-
   TileType*  {.size: sizeof(uint8).} = enum
     Default = 0
     Translucent = 1
@@ -406,7 +403,6 @@ type
     textureMode*: uint8
     textureParams*: array[3, uint8]
     tileCache*: seq[WordId]
-    tileCacheOverrides*: seq[WordOverride]
     map*: seq[seq[Tile]]
 
   Level* = object
@@ -433,7 +429,7 @@ type
     nextLevel*: string
     secretLevel*: string
     musicFile*: string
-    helpString*: array[16, string]
+    helpString*: seq[string]
 
     tilesetEvents*: array[4096, Event] # events for animations are stored in anims[].event
     tileTypes*: array[4096, TileType]
@@ -449,6 +445,8 @@ type
     anims*: seq[AnimatedTile]
 
     dictionary*: seq[RawWord]
+
+    tileCacheOverrides*: seq[OrderedSet[tuple[layer: int, x: int, y: int]]]
 
     # JJ2+ features
     levelBottomMode*: LevelBottomMode
@@ -622,16 +620,26 @@ proc rebuildMap*(self: var Level) =
         let y = (j * 4 + t) div layer.realWidth.int
         layer.map[y][x] = tile
 
+proc locateWordId(self: Level; wordIdCheck: WordId): OrderedSet[tuple[layer: int, x: int, y: int]] =
+  for i, layer in self.layers:
+    for pos, wordId in layer.tileCache:
+      if wordIdCheck == wordId:
+        let x = (pos * 4) mod layer.realWidth.int
+        let y = (pos * 4) div layer.realWidth.int
+        result.incl((i, x, y))
+
 proc rebuildTileCache*(self: var Level; saveOverrides: bool = false) =
+  var checkedWordIds: seq[WordId]
   var dictionary = newSeq[RawWord](1)
+  if saveOverrides:
+    self.tileCacheOverrides.reset()
   for i, layer in self.layers.mpairs:
-    var tileCache: seq[WordId]
     layer.haveAnyTiles = self.checkIfLayerHaveTiles(i)
     layer.realWidth = calculateRealWidth(layer.width, layer.properties.tileWidth)
-    if saveOverrides:
-      layer.tileCacheOverrides.setLen(0)
+
+    var tileCache: seq[WordId]
     if not layer.haveAnyTiles: continue
-    echo "reading words in layer ", i
+    # echo "reading words in layer ", i
     for y, row in layer.map:
       var x = 0
       while x < layer.realWidth.int:
@@ -651,30 +659,47 @@ proc rebuildTileCache*(self: var Level; saveOverrides: bool = false) =
           let pos = dictionary.len
           dictionary.add(rawword)
           tileCache.add(pos.uint16)
+
+          let index = tileCache.len - 1
+          if saveOverrides:
+            let wordId = layer.tileCache[index]
+            if checkedWordIds.find(wordId) == -1:
+              let locations = self.locateWordId(wordId)
+              if locations.len >= 2:
+                checkedWordIds.add(wordId)
+                self.tileCacheOverrides.add(locations)
+                tileCache[index] = wordId
+            else:
+              tileCache[index] = wordId
+
         else:
-          var pos = dictionary.rfind(rawword)
+          var pos = dictionary.find(rawword)
           if pos == -1:
             pos = dictionary.len
             dictionary.add(rawword)
           tileCache.add(pos.uint16)
 
-        let index = tileCache.len - 1
-        if saveOverrides:
-          if layer.tileCache[index] != tileCache[index]:
-            layer.tileCacheOverrides.add(WordOverride(x: x, y: y, wordId: layer.tileCache[index]))
-            tileCache[index] = layer.tileCache[index]
-        else:
-          for override in layer.tileCacheOverrides:
-            if override.x == x and override.y == y:
-              tileCache[index] = override.wordId
-
         x += 4
 
-    echo "tileCache ", i, " ", (layer.tileCache.len, tileCache.len), layer.tileCache == tileCache
-    echo layer.tileCacheOverrides
+    echo "tileCache ", i, " ", (layer.tileCache.len, tileCache.len, layer.tileCache == tileCache)
     layer.tileCache = tileCache
 
-  echo "dict ", (self.dictionary.len, dictionary.len), self.dictionary == dictionary
+  if not saveOverrides:
+    for override in self.tileCacheOverrides:
+      echo "override ", override
+      var i = 0
+      var wordId: WordId
+      for location in override:
+        let layer = self.layers[location.layer].addr
+        if not layer.haveAnyTiles or location.x >= layer.realWidth.int or location.y >= layer.height.int: continue
+        let index = (location.x + location.y * layer.realWidth.int) div 4
+        if i == 0:
+          wordId = layer.tileCache[index]
+        else:
+          layer.tileCache[index] = wordId
+        inc(i)
+
+  echo "dict ", (self.dictionary.len, dictionary.len, self.dictionary == dictionary)
   self.dictionary = dictionary
 
 const NewLevel* = static:
@@ -736,14 +761,14 @@ const NewLevel* = static:
 
   level
 
-proc loadInfo(self: var Level, s: Stream) =
+proc loadInfo(self: var Level, s: StringStream) =
   # data1
   s.read(self.lastHorizontalOffset)
   self.securityEnvelope = s.readUint16().uint32 shl 16
   s.read(self.lastVerticalOffset)
   self.securityEnvelope = self.securityEnvelope or s.readUint16().uint32
   let security3AndLastLayer = s.readUint8()
-  self.securityEnabled = (security3AndLastLayer shr 4) != 0
+  self.securityEnabled = (security3AndLastLayer shr 4) == SecurityEnabled
   self.lastLayer = security3AndLastLayer and 0b1111
 
   s.read(self.minLight)
@@ -757,7 +782,7 @@ proc loadInfo(self: var Level, s: Stream) =
   s.read(self.isLevelMultiplayer)
 
   let bufferSize = s.readUint32()
-  doAssert bufferSize == StringStream(s).data.len.uint32
+  doAssert bufferSize == s.data.len.uint32
 
   self.levelName = s.readCStr(32)
   self.tileset = s.readCStr(32)
@@ -765,11 +790,15 @@ proc loadInfo(self: var Level, s: Stream) =
   self.nextLevel = s.readCStr(32)
   self.secretLevel = s.readCStr(32)
   self.musicFile = s.readCStr(32)
-  for i in 0..<self.helpString.len:
+
+  let helpStringOffset = s.getPosition()
+  self.helpString.setLen(16)
+  for i in 0..<16:
     self.helpString[i] = s.readCStr(512)
 
   # if self.version == v_AGA:
   #   s.read(self.soundEffectPointer)
+
 
   for layer in self.layers.mitems: s.read(layer.properties)
   for layer in self.layers.mitems: s.read(layer.layerType) # unused
@@ -828,15 +857,36 @@ proc loadInfo(self: var Level, s: Stream) =
     for f, frame in anim.frames:
       anim.frames[f] = self.parseTile(rawframes[f])
 
-  # remaining buffer of data1 is just zeroes
+  echo "number of anims: ", self.anims.len, " of ", self.maxAnimTiles
+  let expectedAfterAnim = s.getPosition() + (self.maxAnimTiles - self.anims.len) * AnimStructSize
+  echo s.getPosition(), " position after anims"
+
+  # neobeo's firetruck text strings, incompatible with JJ2+ and TSF
+  s.setPosition(min(s.getPosition(), s.getPosition() - ((s.getPosition() - helpStringOffset) mod 512)) + 512)
+  echo s.getPosition(), " extra help strings"
+
+  while not s.atEnd() and self.helpString.len <= 256:
+    try:
+      let index = (s.getPosition() - helpStringOffset) div 512
+      let str = s.readCStr(512)
+      if str.len > 0:
+        self.helpString.setLen(index + 1)
+        self.helpString[index] = str
+        echo (index, str)
+    except IOError:
+      discard
+
+  s.setPosition(expectedAfterAnim)
+
+  # remaining buffer of data1 is USUALLY just zeroes
   s.close()
 
-proc writeInfo(s: Stream; level: var Level) =
+proc writeInfo(s: StringStream; level: var Level) =
   s.write(level.lastHorizontalOffset)
   s.write(uint16 level.securityEnvelope shr 16)
   s.write(level.lastVerticalOffset)
   s.write(uint16 level.securityEnvelope and 0xffff)
-  s.write(uint8 (level.securityEnabled.uint8 shl 4) or (level.lastLayer and 0b1111))
+  s.write(uint8 ((if level.securityEnabled: SecurityEnabled else: 0) shl 4) or (level.lastLayer and 0b1111))
 
   s.write(level.minLight)
   s.write(level.startLight)
@@ -852,7 +902,11 @@ proc writeInfo(s: Stream; level: var Level) =
   s.writeCStr(level.nextLevel, 32)
   s.writeCStr(level.secretLevel, 32)
   s.writeCStr(level.musicFile, 32)
-  for i in 0..<level.helpString.len:
+
+  let helpStringOffset = s.getPosition()
+  if level.helpString.len < 16:
+    level.helpString.setLen(16)
+  for i in 0..<16:
     s.writeCStr(level.helpString[i], 512)
 
   for layer in level.layers.items: s.write(layer.properties)
@@ -900,9 +954,23 @@ proc writeInfo(s: Stream; level: var Level) =
       rawframes[f] = level.rawTile(frame)
     s.write(rawframes)
 
-  for i in 0..<(level.maxAnimTiles - level.anims.len):
-    for j in 0..<AnimStructSize:
-      s.write(uint8 0)
+  # for i in 0..<(level.maxAnimTiles - level.anims.len):
+  #   for j in 0..<AnimStructSize:
+  #     s.write(uint8 0)
+
+  echo "number of anims: ", level.anims.len, " of ", level.maxAnimTiles
+  let expectedAfterAnim = s.getPosition() + (level.maxAnimTiles - level.anims.len) * AnimStructSize
+  echo s.getPosition(), " after anims"
+
+  # neobeo's firetruck text strings, incompatible with JJ2+ and TSF
+  let extraTextStringsPos = min(s.getPosition(), s.getPosition() - ((s.getPosition() - helpStringOffset) mod 512)) + 512
+  s.writeCStr("", extraTextStringsPos - s.getPosition())
+  echo s.getPosition(), " extra help strings"
+
+  let index = ((s.getPosition() - helpStringOffset) div 512)
+  for i in index..<level.helpString.len:
+    echo "writing string ", i
+    s.writeCStr(level.helpString[i], 512)
 
   let bufferSize = s.getPosition().uint32
   s.setPosition(15)
@@ -999,22 +1067,22 @@ proc writeDictData(s: Stream; level: Level) =
       s.write(tile)
 
 proc loadWordMap(self: var Level; s: Stream)=
-  for i in 0..<LayerCount:
-    if not self.layers[i].haveAnyTiles:
-      self.layers[i].tileCache.setLen(0)
+  for i, layer in self.layers.mpairs:
+    if not layer.haveAnyTiles:
+      layer.tileCache.setLen(0)
       continue
-    self.layers[i].tileCache.setLen(((self.layers[i].realWidth+3) div 4) * self.layers[i].height)
-    for j in 0..<self.layers[i].tileCache.len:
-      s.read(self.layers[i].tileCache[j])
+    layer.tileCache.setLen(((layer.realWidth+3) div 4) * layer.height)
+    for wordId in layer.tileCache.mitems:
+      s.read(wordId)
   doAssert s.atEnd()
   s.close()
 
 proc writeWordMapData(s: Stream; level: Level) =
-  for i in 0..<LayerCount:
-    if not level.layers[i].haveAnyTiles:
+  for layer in level.layers:
+    if not layer.haveAnyTiles:
       continue
-    for j in 0..<level.layers[i].tileCache.len:
-      s.write(level.layers[i].tileCache[j])
+    for wordId in layer.tileCache:
+      s.write(wordId)
 
 proc load*(self: var Level; s: Stream; password: string = ""): bool =
   self.reset()
@@ -1047,6 +1115,8 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
     streamSizes[kind].packedSize = s.readUint32()
     streamSizes[kind].unpackedSize = s.readUint32()
     compressedLength += streamSizes[kind].packedSize
+
+  echo "reading sizes: ", streamSizes
 
   if compressedLength + HeaderStructSize != self.fileSize:
     echo "filesize doesn't match!"
@@ -1106,6 +1176,7 @@ proc save*(self: var Level; s: Stream) =
   s.write(uint8 self.hideInHomecooked)
   s.writeCStr(self.title, 32)
   s.write(if self.version == v_AGA: J2lVersionAGA elif self.version == v1_23: J2lVersion1_23 else: J2lVersion1_24)
+  echo "version: ", self.version
 
   var streams: array[StreamKind, string]
 
@@ -1134,6 +1205,8 @@ proc save*(self: var Level; s: Stream) =
     streamSizes[kind].packedSize = streams[kind].len.uint32
     compressedData &= streams[kind]
     streams[kind] = ""
+
+  echo "writing sizes: ", streamSizes
 
   self.fileSize = compressedData.len.uint32 + HeaderStructSize
   self.checksum = crc32(compressedData)
