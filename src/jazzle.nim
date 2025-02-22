@@ -86,8 +86,120 @@ proc monitorChanged(monitor: int32) =
 proc loadLevelData(filename: string) =
   echo "trying to load file ", filename
   if currentLevel.load(filename):
-    echo "load successful"
-    echo currentLevel.filename
+    echo "loaded ", currentLevel.filename
+    layerTextures.setLen(8)
+    for i in 0 ..< 8:
+      let layer = currentLevel.layers[i].addr
+      var layerData = newSeq[uint16](layer.width * layer.height)
+      let realWidth = ((layer.realWidth + 3) div 4) * 4
+      if layer.haveAnyTiles:
+        for j, wordId in layer.tileCache.pairs:
+          if wordId == 0: continue
+          let word = currentLevel.dictionary[wordId]
+          for t, rawtile in word.pairs:
+            if rawtile == 0: continue
+            let tile = currentLevel.parseTile(rawtile)
+            if ((j * 4 + t) mod realWidth.int) >= layer.width.int: continue
+            var tileId = tile.tileId
+            if tile.animated: tileId += currentLevel.animOffset
+            tileId += tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
+            let x = ((j * 4 + t) mod realWidth.int)
+            let y = ((j * 4 + t) div realWidth.int)
+            let index = x + y * layer.width.int
+            layerData[index] = tileId
+
+      layerTextures[i] = Texture2D(
+        id: rlgl.loadTexture(layerData[0].addr, layer.width.int32, layer.height.int32, UncompressedGrayAlpha.int32, 1),
+        width: layer.width.int32,
+        height: layer.height.int32,
+        mipmaps: 1,
+        format: UncompressedGrayAlpha
+      )
+
+    var animGridData = newSeq[uint16](currentLevel.anims.len)
+    for i in 0 ..< currentLevel.anims.len:
+      let tileId = currentLevel.animOffset.int + i
+      animGridData[i] = uint16 tileId
+
+    animGrid = Texture2D(
+      id: rlgl.loadTexture(animGridData[0].addr, 10, int32 (currentLevel.anims.len+9) div 10, UncompressedGrayAlpha.int32, 1),
+      width: 10,
+      height: int32 (currentLevel.anims.len+9) div 10,
+      mipmaps: 1,
+      format: UncompressedGrayAlpha
+    )
+    animGridData.reset()
+    animsUpdated = true
+
+    scrollParallax.x = -currentLevel.lastHorizontalOffset.float
+    scrollParallax.y = -currentLevel.lastVerticalOffset.float
+
+    currentTileset = Tileset()
+    if currentTileset.load("assets/" & currentLevel.tileset):
+      const format = UncompressedGrayAlpha
+      const width = 64 * 32
+      const height = 64 * 32
+      var imageData = newSeq[GrayAlpha](width * height)
+      let tileset10Height = (currentTileset.numTiles.int + 9) div 10
+      tilesetMapData.setLen(max(10 * tileset10Height, 64 * 64))
+
+      for i in 1..<currentTileset.numTiles.int:
+        let tileId = currentTileset.tileOffsets[i].image
+        if tileId == 0: continue
+        let transOffset = currentTileset.tileOffsets[i].transOffset
+        tilesetMapData[i] = uint16 i
+        let alpha = if currentLevel.tileTypes[i] == Translucent: 180'u8 else: 255'u8
+        for j in 0..<1024:
+          let x = (i mod 64) * 32 + (j mod 32)
+          let y = (i div 64) * 32 + (j div 32)
+          let index = x + y * width
+          imageData[index].gray = currentTileset.tileImage[tileId][j]
+          imageData[index].alpha = if currentTileset.tileTransMask[transOffset][j]: alpha else: 0'u8
+
+      tilesetImage = Texture2D(
+        id: rlgl.loadTexture(imageData[0].addr, width.int32, height.int32, format.int32, 1),
+        width: width.int32,
+        height: height.int32,
+        mipmaps: 1,
+        format: format
+      )
+      tilesetImage.setTextureFilter(Point)
+      tilesetImage.setTextureWrap(Clamp)
+      imageData.reset()
+
+      tilesetIndex10Texture = Texture2D(
+        id: rlgl.loadTexture(tilesetMapData[0].addr, 10, tileset10Height.int32, UncompressedGrayAlpha.int32, 1),
+        width: 10,
+        height: tileset10Height.int32,
+        mipmaps: 1,
+        format: UncompressedGrayAlpha
+      )
+      tilesetIndex10Texture.setTextureFilter(Point)
+      tilesetIndex10Texture.setTextureWrap(Clamp)
+
+      tilesetIndex64Texture = Texture2D(
+        id: rlgl.loadTexture(tilesetMapData[0].addr, 64, 64, UncompressedGrayAlpha.int32, 1),
+        width: 64,
+        height: 64,
+        mipmaps: 1,
+        format: UncompressedGrayAlpha
+      )
+      tilesetIndex64Texture.setTextureFilter(Point)
+      tilesetIndex64Texture.setTextureWrap(Clamp)
+
+      paletteTexture = Texture2D(
+        id: rlgl.loadTexture(currentTileset.palette[0].addr, 256, 1, UncompressedR8g8b8a8.int32, 1),
+        width: 256.int32,
+        height: 1.int32,
+        mipmaps: 1,
+        format: UncompressedR8g8b8a8
+      )
+      paletteTexture.setTextureFilter(Point)
+      paletteTexture.setTextureWrap(Clamp)
+
+      shader.setShaderValueTexture(paletteLoc, paletteTexture)
+      shader.setShaderValueTexture(tilesetImageLoc, tilesetImage)
+      shader.setShaderValueTexture(tilesetMapLoc, tilesetIndex64Texture)
   else:
     echo "couldnt load level!"
 
@@ -388,122 +500,7 @@ proc main =
     drawTexture(icon, getRenderWidth() div 2 - icon.width div 2, getRenderHeight() div 2 - icon.height + 30, White)
     endDrawing()
 
-  currentLevel = Level()
-  if currentLevel.load(levelFile):
-    echo "loaded ", currentLevel.filename
-    layerTextures.setLen(8)
-    for i in 0 ..< 8:
-      let layer = currentLevel.layers[i].addr
-      var layerData = newSeq[uint16](layer.width * layer.height)
-      let realWidth = ((layer.realWidth + 3) div 4) * 4
-      if layer.haveAnyTiles:
-        for j, wordId in layer.tileCache.pairs:
-          if wordId == 0: continue
-          let word = currentLevel.dictionary[wordId]
-          for t, rawtile in word.pairs:
-            if rawtile == 0: continue
-            let tile = currentLevel.parseTile(rawtile)
-            if ((j * 4 + t) mod realWidth.int) >= layer.width.int: continue
-            var tileId = tile.tileId
-            if tile.animated: tileId += currentLevel.animOffset
-            tileId += tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
-            let x = ((j * 4 + t) mod realWidth.int)
-            let y = ((j * 4 + t) div realWidth.int)
-            let index = x + y * layer.width.int
-            layerData[index] = tileId
-
-      layerTextures[i] = Texture2D(
-        id: rlgl.loadTexture(layerData[0].addr, layer.width.int32, layer.height.int32, UncompressedGrayAlpha.int32, 1),
-        width: layer.width.int32,
-        height: layer.height.int32,
-        mipmaps: 1,
-        format: UncompressedGrayAlpha
-      )
-
-    var animGridData = newSeq[uint16](currentLevel.anims.len)
-    for i in 0 ..< currentLevel.anims.len:
-      let tileId = currentLevel.animOffset.int + i
-      animGridData[i] = uint16 tileId
-
-    animGrid = Texture2D(
-      id: rlgl.loadTexture(animGridData[0].addr, 10, int32 (currentLevel.anims.len+9) div 10, UncompressedGrayAlpha.int32, 1),
-      width: 10,
-      height: int32 (currentLevel.anims.len+9) div 10,
-      mipmaps: 1,
-      format: UncompressedGrayAlpha
-    )
-    animGridData.reset()
-    animsUpdated = true
-
-    scrollParallax.x = -currentLevel.lastHorizontalOffset.float
-    scrollParallax.y = -currentLevel.lastVerticalOffset.float
-
-    currentTileset = Tileset()
-    if currentTileset.load("assets/" & currentLevel.tileset):
-      const format = UncompressedGrayAlpha
-      const width = 64 * 32
-      const height = 64 * 32
-      var imageData = newSeq[GrayAlpha](width * height)
-      let tileset10Height = (currentTileset.numTiles.int + 9) div 10
-      tilesetMapData.setLen(max(10 * tileset10Height, 64 * 64))
-
-      for i in 1..<currentTileset.numTiles.int:
-        let tileId = currentTileset.tileOffsets[i].image
-        if tileId == 0: continue
-        let transOffset = currentTileset.tileOffsets[i].transOffset
-        tilesetMapData[i] = uint16 i
-        let alpha = if currentLevel.tileTypes[i] == Translucent: 180'u8 else: 255'u8
-        for j in 0..<1024:
-          let x = (i mod 64) * 32 + (j mod 32)
-          let y = (i div 64) * 32 + (j div 32)
-          let index = x + y * width
-          imageData[index].gray = currentTileset.tileImage[tileId][j]
-          imageData[index].alpha = if currentTileset.tileTransMask[transOffset][j]: alpha else: 0'u8
-
-      tilesetImage = Texture2D(
-        id: rlgl.loadTexture(imageData[0].addr, width.int32, height.int32, format.int32, 1),
-        width: width.int32,
-        height: height.int32,
-        mipmaps: 1,
-        format: format
-      )
-      tilesetImage.setTextureFilter(Point)
-      tilesetImage.setTextureWrap(Clamp)
-      imageData.reset()
-
-      tilesetIndex10Texture = Texture2D(
-        id: rlgl.loadTexture(tilesetMapData[0].addr, 10, tileset10Height.int32, UncompressedGrayAlpha.int32, 1),
-        width: 10,
-        height: tileset10Height.int32,
-        mipmaps: 1,
-        format: UncompressedGrayAlpha
-      )
-      tilesetIndex10Texture.setTextureFilter(Point)
-      tilesetIndex10Texture.setTextureWrap(Clamp)
-
-      tilesetIndex64Texture = Texture2D(
-        id: rlgl.loadTexture(tilesetMapData[0].addr, 64, 64, UncompressedGrayAlpha.int32, 1),
-        width: 64,
-        height: 64,
-        mipmaps: 1,
-        format: UncompressedGrayAlpha
-      )
-      tilesetIndex64Texture.setTextureFilter(Point)
-      tilesetIndex64Texture.setTextureWrap(Clamp)
-
-      paletteTexture = Texture2D(
-        id: rlgl.loadTexture(currentTileset.palette[0].addr, 256, 1, UncompressedR8g8b8a8.int32, 1),
-        width: 256.int32,
-        height: 1.int32,
-        mipmaps: 1,
-        format: UncompressedR8g8b8a8
-      )
-      paletteTexture.setTextureFilter(Point)
-      paletteTexture.setTextureWrap(Clamp)
-
-  shader.setShaderValueTexture(paletteLoc, paletteTexture)
-  shader.setShaderValueTexture(tilesetImageLoc, tilesetImage)
-  shader.setShaderValueTexture(tilesetMapLoc, tilesetIndex64Texture)
+  loadLevelData(levelFile)
 
   # guiLoadStyleJungle()
 
