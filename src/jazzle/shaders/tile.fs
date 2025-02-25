@@ -48,6 +48,6 @@ void main() {
     outColor = vec4(1,1,1,1) - outColor;
   }
   // fix alpha
-  outColor.a = 1.0 * tilesetTile.a;
+  outColor.a = tilesetTile.a * fragColor.a;
   finalColor = outColor;
 }

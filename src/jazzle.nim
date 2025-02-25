@@ -4,6 +4,8 @@ import jazzle/tileset
 import jazzle/level
 import std/math
 import std/os
+import std/sequtils
+import std/strutils
 
 import ./jazzle/gui
 
@@ -40,8 +42,27 @@ var lastMousePos = Vector2()
 
 var scrollParallaxPos = Rectangle(x: 335, y: 20, width: 1, height: 1)
 var scrollParallaxView = Rectangle()
+var scrollParallaxContent = Rectangle()
 var scrollParallax = Vector2()
+var showParallaxLayers = true
 var showParallaxEvents = true
+var showParallaxGrid = true
+var parallaxCurrentLayer: int32 = SpriteLayerNum.int32
+const parallaxResolutions = [
+  (-1, -1), # none
+  (320, 200),
+  (320, 240),
+  (512, 384),
+  (640, 400),
+  (640, 480),
+  (800, 450),
+  (800, 600)
+]
+const parallaxResolutionsStr = parallaxResolutions.map(proc (res: (int, int)): string =
+    if res[0] == -1: "(none)" else: $res[0] & "x" & $res[1]
+  ).join(";")
+var parallaxResolutionSelection: int32 = 0
+var parallaxResolutionOpened = false
 
 var scrollTilesetPos = Rectangle(x: 0, y: 20, width: 334, height: 1)
 var scrollTilesetView = Rectangle()
@@ -242,10 +263,11 @@ else:
 
 
 
-proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileWidth: bool = false; tileHeight: bool = false) =
+proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileWidth: bool = false; tileHeight: bool = false; alpha: uint8 = 255) =
   if texture.id == 0: return
 
-  let tint = White
+  var tint = White
+  tint.a = alpha
 
   # texture size
   let width = texture.width.float
@@ -299,20 +321,26 @@ proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileW
     rlgl.vertex2f(right, top)
   rlgl.setTexture(0)
 
-proc drawParallaxEvents(viewSize: Vector2; alignment: Vector2) =
-  let layer = currentLevel.layers[3].addr
+proc calculateParallaxLayerOffset(viewSize: Vector2; alignment: Vector2; layerNum: int): Vector2 =
+  let currentLayer = currentLevel.layers[parallaxCurrentLayer].addr
+  let layer = currentLevel.layers[layerNum].addr
 
   let speed = Vector2(
-    x: layer.speedX / 65536,
-    y: layer.speedY / 65536
+    x: if layer.speedX == currentLayer.speedX: 1 else: layer.speedX / currentLayer.speedX,
+    y: if layer.speedY == currentLayer.speedY: 1 else: layer.speedY / currentLayer.speedY
   )
   let heightMultiplier = (layer.properties.limitVisibleRegion and not layer.properties.tileHeight).float + 1
-  var pos = Vector2(
+  var offset = Vector2(
     x: speed.x * (scrollParallax.x - alignment.x) + alignment.x,
     y: speed.y * (scrollParallax.y - alignment.y) + alignment.y * heightMultiplier
   )
-  pos.x = floor(pos.x + scrollParallaxView.width / 2 - viewSize.x / 2)
-  pos.y = floor(pos.y + scrollParallaxView.height / 2 - viewSize.y / 2)
+  offset.x = floor(offset.x + scrollParallaxView.width / 2 - viewSize.x / 2)
+  offset.y = floor(offset.y + scrollParallaxView.height / 2 - viewSize.y / 2)
+  return offset
+
+proc drawParallaxEvents(offset: Vector2) =
+  let layer = currentLevel.layers[SpriteLayerNum].addr
+
   let labelStye = guiGetStyle(Label, TextColorNormal)
   let alignment = guiGetStyle(Label, TextAlignment)
   let textSize = guiGetStyle(GuiControl.Default, TextSize)
@@ -330,8 +358,8 @@ proc drawParallaxEvents(viewSize: Vector2; alignment: Vector2) =
         eventId = params[0].EventId
       let text = jcsEvents[eventId].label
       let rect = Rectangle(
-        x: scrollParallaxView.x + pos.x + x.float * 32,
-        y: scrollParallaxView.y + pos.y + y.float * 32,
+        x: scrollParallaxView.x + offset.x + x.float * 32,
+        y: scrollParallaxView.y + offset.y + y.float * 32,
         width: 32,
         height: 32
       )
@@ -467,47 +495,65 @@ proc draw() =
     shaderMode(shader):
       drawTiles(animGrid, scrollAnim, scrollAnimView)
 
-  let viewSize = Vector2(x: min(800, scrollParallaxView.width), y: min(600, scrollParallaxView.height))
-  let parallaxRec = Rectangle(x: 0, y: 0, width: layerTextures[3].width.float32*32 + scrollParallaxView.width - viewSize.x, height: layerTextures[3].height.float32*32 + scrollParallaxView.height - viewSize.y)
+  scrollPanel(scrollParallaxPos, "Parallax View", scrollParallaxContent, scrollParallax, scrollParallaxView)
+  let mousePos = getMousePosition()
+  let currentLayer = currentLevel.layers[parallaxCurrentLayer].addr
+  let viewSize = if parallaxResolutionSelection > 0:
+      Vector2(x: min(parallaxResolutions[parallaxResolutionSelection][0].float, scrollParallaxView.width), y: min(parallaxResolutions[parallaxResolutionSelection][1].float, scrollParallaxView.height))
+    else:
+      Vector2(x: scrollParallaxView.width, y: scrollParallaxView.height)
   let alignment = Vector2(
     x: (viewSize.x - 320) / 2,
     y: (viewSize.y - 200) / 2
   )
 
-  scrollPanel(scrollParallaxPos, "Parallax View", parallaxRec, scrollParallax, scrollParallaxView)
+  # echo (scrollParallaxPos, scrollParallaxView)
+  let currentLayerOffset = calculateParallaxLayerOffset(viewSize, alignment, parallaxCurrentLayer)
+  scrollParallaxContent = Rectangle(x: 0, y: 0, width: layerTextures[parallaxCurrentLayer].width.float32*32 + max(0, scrollParallaxView.width - viewSize.x), height: layerTextures[parallaxCurrentLayer].height.float32*32 + max(0, scrollParallaxView.height - viewSize.y))
   scissorMode(scrollParallaxView.x.int32, scrollParallaxView.y.int32, scrollParallaxView.width.int32, scrollParallaxView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
     for i in countdown(currentLevel.layers.len - 1, 0):
-      if i == 3:
-        grid(Rectangle(x: scrollParallaxView.x + scrollParallax.x, y: scrollParallaxView.y + scrollParallax.y, width: parallaxRec.width, height: parallaxRec.height), "", 32*4, 4, mouseCell)
-      let layer = currentLevel.layers[i].addr
+      if not showParallaxLayers and parallaxCurrentLayer != i:
+        continue
 
-      let speed = Vector2(
-        x: layer.speedX / 65536,
-        y: layer.speedY / 65536
-      )
-      let heightMultiplier = (layer.properties.limitVisibleRegion and not layer.properties.tileHeight).float + 1
-      var pos = Vector2(
-        x: speed.x * (scrollParallax.x - alignment.x) + alignment.x,
-        y: speed.y * (scrollParallax.y - alignment.y) + alignment.y * heightMultiplier
-      )
-      pos.x = floor(pos.x + scrollParallaxView.width / 2 - viewSize.x / 2)
-      pos.y = floor(pos.y + scrollParallaxView.height / 2 - viewSize.y / 2)
+      let layer = currentLevel.layers[i].addr
+      let offset = calculateParallaxLayerOffset(viewSize, alignment, i)
 
       shaderMode(shader):
-        drawTiles(layerTextures[i], pos, scrollParallaxView, layer.properties.tileWidth, layer.properties.tileHeight)
+        drawTiles(layerTextures[i], offset, scrollParallaxView, layer.properties.tileWidth, layer.properties.tileHeight)
 
-      drawRectangleLines(Rectangle(
-        x: scrollParallaxView.x + scrollParallaxView.width / 2 - viewSize.x / 2 - 1,
-        y: scrollParallaxView.y + scrollParallaxView.height / 2 - viewSize.y / 2 - 1,
-        width: viewSize.x + 2,
-        height: viewSize.y + 2
-      ), 1, White)
+    if showParallaxGrid:
+      grid(Rectangle(x: scrollParallaxView.x + currentLayerOffset.x, y: scrollParallaxView.y + currentLayerOffset.y, width: currentLayer.width.float * 32, height: currentLayer.height.float * 32), "", 32*4, 4, mouseCell)
+    if showParallaxEvents and parallaxCurrentLayer == SpriteLayerNum:
+      drawParallaxEvents(currentLayerOffset)
 
-    if showParallaxEvents:
-      drawParallaxEvents(viewSize, alignment)
+    let mousePosTile = Vector2(x: (mousePos.x - scrollParallaxView.x - currentLayerOffset.x) / 32, y: (mousePos.y - scrollParallaxView.y - currentLayerOffset.y) / 32)
+    drawRectangleLines(Rectangle(x: scrollParallaxView.x + currentLayerOffset.x + floor(mousePosTile.x) * 32, y: scrollParallaxView.y + currentLayerOffset.y + floor(mousePosTile.y) * 32, width: 32, height: 32), 1, Pink)
 
-  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 60 - 2, y: scrollParallaxPos.y + 2, width: 60, height: 20), "Events", showParallaxEvents)
+    # drawRectangleLines(Rectangle(
+    #   x: scrollParallaxView.x + scrollParallaxView.width / 2 - viewSize.x / 2 - 1024,
+    #   y: scrollParallaxView.y + scrollParallaxView.height / 2 - viewSize.y / 2 - 1024,
+    #   width: viewSize.x + 1024*2,
+    #   height: viewSize.y + 1024*2
+    # ), 1024, Black)
+
+    drawRectangleLines(Rectangle(
+      x: scrollParallaxView.x + scrollParallaxView.width / 2 - viewSize.x / 2 - 1,
+      y: scrollParallaxView.y + scrollParallaxView.height / 2 - viewSize.y / 2 - 1,
+      width: viewSize.x + 2,
+      height: viewSize.y + 2
+    ), 1, White)
+
+  if dropdownBox(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 75 - 2, y: scrollParallaxPos.y + 2, width: 75, height: 20), parallaxResolutionsStr, parallaxResolutionSelection, parallaxResolutionOpened):
+    parallaxResolutionOpened = not parallaxResolutionOpened
+
+  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 60 - 75 - 2*2, y: scrollParallaxPos.y + 2, width: 60, height: 20), "Events", showParallaxEvents)
+
+  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 60 - 75 - 2*4, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(LayersIso), showParallaxLayers)
+
+  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 20 - 60 - 75 - 2*5, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(Grid), showParallaxGrid)
+
+  toggleGroup(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 8*(18+2) - 20 - 20 - 60 - 75 - 2*7, y: scrollParallaxPos.y + 2, width: 18, height: 20), "1;2;3;4;5;6;7;8", parallaxCurrentLayer)
 
   case showMenu(mainMenu, 20):
   of MenuNone: discard
