@@ -20,7 +20,6 @@ type
     gray: uint8
     alpha: uint8
 
-
 var lastCurrentMonitor: int32 = 0
 var currentTileset: Tileset
 var currentLevel = NewLevel
@@ -161,21 +160,19 @@ proc loadLevelData(filename: string) =
       const width = 64 * 32
       const height = 64 * 32
       var imageData = newSeq[GrayAlpha](width * height)
-      let tileset10Height = (currentTileset.numTiles.int + 9) div 10
+      let tileset10Height = (currentTileset.tiles.len + 9) div 10
       tilesetMapData.setLen(max(10 * tileset10Height, 64 * 64))
 
-      for i in 1..<currentTileset.numTiles.int:
-        let tileId = currentTileset.tileOffsets[i].image
-        if tileId == 0: continue
-        let transOffset = currentTileset.tileOffsets[i].transOffset
+      for i, tile in currentTileset.tiles:
+        if i == 0: continue
         tilesetMapData[i] = uint16 i
         let alpha = if currentLevel.tileTypes[i] == Translucent: 180'u8 else: 255'u8
-        for j in 0..<1024:
+        for j in 0..<32*32:
           let x = (i mod 64) * 32 + (j mod 32)
           let y = (i div 64) * 32 + (j div 32)
           let index = x + y * width
-          imageData[index].gray = currentTileset.tileImage[tileId][j]
-          imageData[index].alpha = if currentTileset.tileTransMask[transOffset][j]: alpha else: 0'u8
+          imageData[index].gray = tile[j].color
+          imageData[index].alpha = if tile[j].transMask: alpha else: 0'u8
 
       tilesetImage = Texture2D(
         id: rlgl.loadTexture(imageData[0].addr, width.int32, height.int32, format.int32, 1),
@@ -356,13 +353,16 @@ proc drawParallaxEvents(offset: Vector2) =
       let params = evt.params
       if isGenerator:
         eventId = params[0].EventId
-      let text = jcsEvents[eventId].label
+
       let rect = Rectangle(
         x: scrollParallaxView.x + offset.x + x.float * 32,
         y: scrollParallaxView.y + offset.y + y.float * 32,
         width: 32,
         height: 32
       )
+
+      if not checkCollisionRecs(scrollParallaxView, rect): continue
+
       let rectOuter = Rectangle(
         x: rect.x - 6,
         y: rect.y,
@@ -437,6 +437,7 @@ proc drawParallaxEvents(offset: Vector2) =
         drawTriangle(Vector2(x: rect.x, y: rect.y), Vector2(x: rect.x, y: rect.y + 7), Vector2(x: rect.x + 7, y: rect.y), Color(r: 255, g: 255, b: 255, a: 140))
         drawTriangleLines(Vector2(x: rect.x, y: rect.y), Vector2(x: rect.x, y: rect.y + 9), Vector2(x: rect.x + 9, y: rect.y), Black)
 
+      let text = jcsEvents[eventId].label
       label(rectOuter, text)
   guiSetStyle(Label, TextAlignment, alignment)
   guiSetStyle(Label, TextColorNormal, labelStye)
@@ -566,7 +567,7 @@ proc draw() =
   # let mbox = GuiMessageBox(Rectangle(x: 85, y: 70, width: 250, height: 100), "#191#Message Box", "Hi! This is a message!", "Nice;Cool")
   # if mbox != -1: echo mbox
 
-  drawText("FPS: " & $getFPS(), getRenderWidth() - 100, 1, 20, Gold)
+  drawText("FPS: " & $getFPS(), getRenderWidth() - 100, 1, 20, DarkGray)
 
   endDrawing()
   mouseUpdated = false

@@ -1,7 +1,6 @@
 import std/streams
 import std/strutils
 import std/bitops
-import pixie
 import zippy
 import zippy/crc
 import ./common
@@ -24,16 +23,24 @@ type
     MaskData
   StreamSize = tuple[packedSize, unpackedSize: uint32]
 
-  TileOffsets* = object
-    opaque*: bool
-    image*: int
-    trans*: uint32 # internal value stored in J2T
-    transOffset*: int
-    mask*: int
-    flipped*: int
+  TileOffsets = object
+    opaque: bool
+    image: int
+    trans: uint32 # internal value stored in J2T
+    transOffset: int
+    mask: int
+    flipped: int
 
-  TileImage* = array[1024, uint8]
-  TileMask* = array[1024, bool]
+  TileImage* = array[32*32, uint8]
+  TileMask* = array[32*32, bool]
+
+  TilePixel* = object
+    color*: uint8 # palette index
+    transMask*: bool # used by JCS, true when opaque
+    transMaskJJ2*: bool # used by JJ2, true when opaque
+    mask*: bool # true when masked/collision
+
+  TilesetTile* = array[32*32, TilePixel]
 
   Tileset* = object
     title*: string
@@ -41,18 +48,28 @@ type
     fileSize*: uint32
     checksum*: uint32
     palette*: array[256, array[4, uint8]]
-    numTiles*: uint32
-    tileOffsets*: seq[TileOffsets] # contains tile offsets
-    tileImage*: seq[TileImage]
-    tileTransMask*: seq[TileMask]
-    tileTransMaskJJ2*: seq[TileMask] # used by JJ2
-    tileMask*: seq[TileMask]
+    tiles*: seq[TilesetTile]
+
+    numTiles: uint32
+    tileOffsets: seq[TileOffsets] # contains tile offsets
+    tileImage: seq[TileImage]
+    tileTransMask: seq[TileMask]
+    tileTransMaskJJ2: seq[TileMask] # used by JJ2
+    tileMask: seq[TileMask]
+
 
 proc maxTiles*(self: Tileset): uint32 =
   if self.version == v1_23:
     1024'u32
   else:
     4096'u32
+
+proc flipMask*(tileMask: TileMask): TileMask =
+  for y in 0..<32:
+    for x in 0..<32:
+      let srcPos = y * 32 + x
+      let dstPos = y * 32 + (31 - x)
+      result[dstPos] = tileMask[srcPos]
 
 proc readMaskData(s: Stream): TileMask =
   var mask: array[128, uint8]
@@ -186,23 +203,28 @@ proc writeInfo(s: Stream; tileset: Tileset) =
 proc readImageData(self: var Tileset, s: StringStream) =
   # data2 image data
   self.tileImage.setLen(s.data.len div 1024)
-  var im = newImage(self.tileImage.len * 32, 32)
 
   for i in 0..<self.tileImage.len:
     s.read(self.tileImage[i])
-    for j in 0..<1024:
-      let color = self.tileImage[i][j]
-      im[i * 32 + j mod 32, j div 32] = ColorRGBA(
-        r: self.palette[color][0],
-        g: self.palette[color][1],
-        b: self.palette[color][2],
-        a: if color > 0: 255 else: 0
-      )
 
   doAssert s.atEnd()
   s.close()
 
-  im.writeFile("tileset_data2.png")
+  # var im = newImage(self.tileImage.len * 32, 32)
+  # for i in 0..<self.tileImage.len:
+  #   for j in 0..<1024:
+  #     let color = self.tileImage[i][j]
+  #     im[i * 32 + j mod 32, j div 32] = ColorRGBA(
+  #       r: self.palette[color][0],
+  #       g: self.palette[color][1],
+  #       b: self.palette[color][2],
+  #       a: if color > 0: 255 else: 0
+  #     )
+  # im.writeFile("tileset_data2.png")
+
+proc writeImageData(s: Stream; tileset: Tileset) =
+  for i in 0..<tileset.tileImage.len:
+    s.write(tileset.tileImage[i])
 
 proc readTransMask(self: var Tileset; s: StringStream) =
   # data3 transparency mask
@@ -234,52 +256,25 @@ proc readTransMask(self: var Tileset; s: StringStream) =
         self.tileOffsets[i].transOffset = j
         break
 
-  var im = newImage(self.tileTransMask.len * 32, 32 * 2)
-
-  for i in 0..<self.tileTransMask.len:
-    for j in 0..<1024:
-      let color = if self.tileTransMask[i][j]: 100'u8 else: 255'u8
-      im[i * 32 + j mod 32, 0 * 32 + (j div 32)] = ColorRGB(
-        r: color,
-        g: color,
-        b: color
-      )
-      let color2 = if self.tileTransMaskJJ2[i][j]: 100'u8 else: 255'u8
-      im[i * 32 + j mod 32, 1 * 32 + (j div 32)] = ColorRGB(
-        r: color2,
-        g: color2,
-        b: color2
-      )
-
   doAssert s.atEnd()
   s.close()
 
-  im.writeFile("tileset_data3.png")
-
-proc readMaskData(self: var Tileset; s: StringStream) =
-  # data4 collision mask
-  self.tileMask.setLen(s.data.len div 128)
-
-  var im = newImage(self.tileMask.len * 32, 32)
-
-  for i in 0..<self.tileMask.len:
-    self.tileMask[i] = s.readMaskData()
-    for j in 0..<1024:
-      let color = if self.tileMask[i][j]: 50'u8 else: 255'u8
-      im[i * 32 + (j mod 32), j div 32] = ColorRGB(
-        r: color,
-        g: color,
-        b: color
-      )
-
-  doAssert s.atEnd()
-  s.close()
-
-  im.writeFile("tileset_data4.png")
-
-proc writeImageData(s: Stream; tileset: Tileset) =
-  for i in 0..<tileset.tileImage.len:
-    s.write(tileset.tileImage[i])
+  # var im = newImage(self.tileTransMask.len * 32, 32 * 2)
+  # for i in 0..<self.tileTransMask.len:
+  #   for j in 0..<1024:
+  #     let color = if self.tileTransMask[i][j]: 100'u8 else: 255'u8
+  #     im[i * 32 + j mod 32, 0 * 32 + (j div 32)] = ColorRGB(
+  #       r: color,
+  #       g: color,
+  #       b: color
+  #     )
+  #     let color2 = if self.tileTransMaskJJ2[i][j]: 100'u8 else: 255'u8
+  #     im[i * 32 + j mod 32, 1 * 32 + (j div 32)] = ColorRGB(
+  #       r: color2,
+  #       g: color2,
+  #       b: color2
+  #     )
+  # im.writeFile("tileset_data3.png")
 
 proc writeTransMaskData(s: Stream; tileset: var Tileset) =
   ## Writes transparent mask data to stream
@@ -295,9 +290,98 @@ proc writeTransMaskData(s: Stream; tileset: var Tileset) =
   for i in 0..<tileset.numTiles:
     tileset.tileOffsets[i].trans = offsets[tileset.tileOffsets[i].transOffset]
 
+proc readMaskData(self: var Tileset; s: StringStream) =
+  # data4 collision mask
+  self.tileMask.setLen(s.data.len div 128)
+
+  for i in 0..<self.tileMask.len:
+    self.tileMask[i] = s.readMaskData()
+
+  doAssert s.atEnd()
+  s.close()
+
+  # var im = newImage(self.tileMask.len * 32, 32)
+  # for i in 0..<self.tileMask.len:
+  #   for j in 0..<1024:
+  #     let color = if self.tileMask[i][j]: 50'u8 else: 255'u8
+  #     im[i * 32 + (j mod 32), j div 32] = ColorRGB(
+  #       r: color,
+  #       g: color,
+  #       b: color
+  #     )
+  # im.writeFile("tileset_data4.png")
+
 proc writeMaskData(s: Stream; tileset: Tileset) =
   for i in 0..<tileset.tileMask.len:
     s.writeMaskData(tileset.tileMask[i])
+
+proc updateToTiles(self: var Tileset) =
+  # uses tileOffsets, tileImage, tileMask... to write self.tiles
+  self.tiles = newSeq[TilesetTile](self.numTiles)
+  for i, tile in self.tiles.mpairs:
+    if i == 0: continue # first tile is always empty
+    let offsets = self.tileOffsets[i]
+    let tileImage = self.tileImage[offsets.image]
+    let transMask = self.tileTransMask[offsets.transOffset]
+    let transMaskJJ2 = self.tileTransMaskJJ2[offsets.transOffset]
+    let tileMask = self.tileMask[offsets.mask]
+    # let tileMaskFlipped = self.tileMask[offsets.flipped]
+    for j in 0..<32*32:
+      tile[j].color = tileImage[j]
+      tile[j].transMask = transMask[j]
+      tile[j].transMaskJJ2 = transMaskJJ2[j]
+      tile[j].mask = tileMask[j]
+
+proc updateFromTiles(self: var Tileset) =
+  # uses self.tiles to write tileOffsets, tileImage, tileMask...
+  self.numTiles = max(1, self.tiles.len).uint32
+  self.tileOffsets = newSeq[TileOffsets](self.maxTiles)
+  self.tileImage = newSeq[TileImage](1)
+  self.tileMask = newSeq[TileMask](1)
+  self.tileTransMask = newSeq[TileMask](1)
+  self.tileTransMaskJJ2 = newSeq[TileMask](1)
+  for i, tile in self.tiles:
+    if i == 0: continue
+    let offsets = self.tileOffsets[i].addr
+    var tileImage: TileImage
+    var transMask: TileMask
+    var transMaskJJ2: TileMask
+    var tileMask: TileMask
+
+    offsets.opaque = true
+
+    for j, pixel in tile:
+      tileImage[j] = pixel.color
+      transMask[j] = pixel.transMask
+      transMaskJJ2[j] = pixel.transMaskJJ2
+      tileMask[j] = pixel.mask
+
+      # TODO: check if this should use transMask or transMaskJJ2
+      if not pixel.transMask:
+        offsets.opaque = false
+
+    var flippedMask = flipMask(tileMask)
+
+    offsets.image = self.tileImage.find(tileImage)
+    if offsets.image == -1:
+      offsets.image = self.tileImage.len
+      self.tileImage.add(tileImage)
+
+    offsets.transOffset = self.tileTransMask.find(transMask)
+    if offsets.transOffset == -1:
+      offsets.transOffset = self.tileTransMask.len
+      self.tileTransMask.add(transMask)
+      self.tileTransMaskJJ2.add(transMaskJJ2)
+
+    offsets.mask = self.tileMask.find(tileMask)
+    if offsets.mask == -1:
+      offsets.mask = self.tileMask.len
+      self.tileMask.add(tileMask)
+
+    offsets.flipped = self.tileMask.find(flippedMask)
+    if offsets.flipped == -1:
+      offsets.flipped = self.tileMask.len
+      self.tileMask.add(flippedMask)
 
 proc load*(tileset: var Tileset; s: Stream): bool =
   tileset.reset()
@@ -320,6 +404,8 @@ proc load*(tileset: var Tileset; s: Stream): bool =
     streamSizes[kind].packedSize = s.readUint32()
     streamSizes[kind].unpackedSize = s.readUint32()
     compressedLength += streamSizes[kind].packedSize
+
+  echo streamSizes
 
   doAssert s.getPosition() == HeaderStructSize
 
@@ -352,6 +438,8 @@ proc load*(tileset: var Tileset; s: Stream): bool =
   tileset.readTransMask(sections[TransData])
   tileset.readMaskData(sections[MaskData])
 
+  tileset.updateToTiles()
+
   return true
 
 proc load*(tileset: var Tileset; filename: string): bool =
@@ -366,6 +454,8 @@ proc save*(tileset: var Tileset; s: Stream) =
   s.write(J2tSignature)
   s.writeCStr(tileset.title, 32)
   s.write(if tileset.version == v1_23: J2tVersion1_23 else: J2tVersion1_24)
+
+  tileset.updateFromTiles()
 
   var streams: array[StreamKind, string]
 
@@ -399,6 +489,8 @@ proc save*(tileset: var Tileset; s: Stream) =
     compressedData &= streams[kind]
     streams[kind] = ""
 
+  echo streamSizes
+
   tileset.fileSize = compressedData.len.uint32 + HeaderStructSize
   tileset.checksum = crc32(compressedData)
 
@@ -416,72 +508,77 @@ proc save*(tileset: var Tileset; filename: string) =
   defer: s.close()
   tileset.save(s)
 
-proc debug*(self: Tileset) =
-  echo "drawing tileset buffers"
+when not defined(emscripten):
+  import pixie
 
-  var im = newImage(320 * 6, ((self.maxTiles.int + 9) div 10) * 32)
+  proc debug*(self: Tileset) =
+    echo "drawing tileset buffers"
 
-  for i in 1..<self.maxTiles.int:
-    for j in 0..<1024:
-      let x = (i mod 10) * 32 + (j mod 32)
-      let y = (i div 10) * 32 + (j div 32)
+    var im = newImage(320 * 6, ((self.maxTiles.int + 9) div 10) * 32)
 
-      if i < self.numTiles.int:
-        let opaque = if self.tileOffsets[i].opaque: 150'u8 else: 255'u8
-        im[x + 0 * 320, y] = ColorRGB(
-          r: opaque,
-          g: opaque,
-          b: opaque
-        )
+    for i in 1..<self.maxTiles.int:
+      for j in 0..<1024:
+        let x = (i mod 10) * 32 + (j mod 32)
+        let y = (i div 10) * 32 + (j div 32)
 
-        var tileId = self.tileOffsets[i].image
-        let color = self.tileImage[tileId][j]
+        if i < self.numTiles.int:
+          let opaque = if self.tileOffsets[i].opaque: 150'u8 else: 255'u8
+          im[x + 0 * 320, y] = ColorRGB(
+            r: opaque,
+            g: opaque,
+            b: opaque
+          )
+
+          var tileId = self.tileOffsets[i].image
+          let color = self.tileImage[tileId][j]
+          if tileId > 0:
+            im[x + 1 * 320, y] = ColorRGBA(
+              r: self.palette[color][0],
+              g: self.palette[color][1],
+              b: self.palette[color][2],
+              a: if color > 0: 255 else: 0
+            )
+
+          tileId = self.tileOffsets[i].transOffset
+          if tileId > 0:
+            let trans1 = if self.tileTransMask[tileId][j]: 100'u8 else: 255'u8
+            im[x + 2 * 320, y] = ColorRGB(
+              r: trans1,
+              g: trans1,
+              b: trans1
+            )
+            let trans2 = if self.tileTransMaskJJ2[tileId][j]: 100'u8 else: 255'u8
+            im[x + 3 * 320, y] = ColorRGB(
+              r: trans2,
+              g: trans2,
+              b: trans2
+            )
+
+          tileId = self.tileOffsets[i].mask
+          if tileId > 0:
+            let mask = if self.tileMask[tileId][j]: 50'u8 else: 255'u8
+            im[x + 4 * 320, y] = ColorRGB(
+              r: mask,
+              g: mask,
+              b: mask
+            )
+
+        var tileId = self.tileOffsets[i].flipped
         if tileId > 0:
-          im[x + 1 * 320, y] = ColorRGBA(
-            r: self.palette[color][0],
-            g: self.palette[color][1],
-            b: self.palette[color][2],
-            a: if color > 0: 255 else: 0
+          let flipped = if self.tileMask[tileId][j]: 50'u8 else: 255'u8
+          im[x + 5 * 320, y] = ColorRGB(
+            r: flipped,
+            g: flipped,
+            b: flipped
           )
 
-        tileId = self.tileOffsets[i].transOffset
-        if tileId > 0:
-          let trans1 = if self.tileTransMask[tileId][j]: 100'u8 else: 255'u8
-          im[x + 2 * 320, y] = ColorRGB(
-            r: trans1,
-            g: trans1,
-            b: trans1
-          )
-          let trans2 = if self.tileTransMaskJJ2[tileId][j]: 100'u8 else: 255'u8
-          im[x + 3 * 320, y] = ColorRGB(
-            r: trans2,
-            g: trans2,
-            b: trans2
-          )
+    echo "saving"
+    im.writeFile("tileset.png")
 
-        tileId = self.tileOffsets[i].mask
-        if tileId > 0:
-          let mask = if self.tileMask[tileId][j]: 50'u8 else: 255'u8
-          im[x + 4 * 320, y] = ColorRGB(
-            r: mask,
-            g: mask,
-            b: mask
-          )
-
-      var tileId = self.tileOffsets[i].flipped
-      if tileId > 0:
-        let flipped = if self.tileMask[tileId][j]: 50'u8 else: 255'u8
-        im[x + 5 * 320, y] = ColorRGB(
-          r: flipped,
-          g: flipped,
-          b: flipped
-        )
-
-  echo "saving"
-  im.writeFile("tileset.png")
-
-proc test*(filename: string) =
-  var tileset = Tileset()
-  if tileset.load(filename):
-    tileset.debug()
-    tileset.save("tileset_saved.j2t")
+  proc test*(filename: string) =
+    var tileset = Tileset()
+    if tileset.load(filename):
+      tileset.debug()
+      tileset.save("tileset_saved.j2t")
+      if tileset.load("tileset_saved.j2t"):
+        tileset.save("tileset_saved_twice.j2t")

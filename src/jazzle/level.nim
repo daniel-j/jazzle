@@ -1,7 +1,7 @@
 import std/streams
 import std/strutils
 import std/bitops
-import pixie
+import std/math
 import zippy
 import zippy/crc
 import parseini
@@ -1227,169 +1227,168 @@ proc save*(self: var Level; filename: string) =
   defer: s.close()
   self.save(s)
 
-proc debug*(self: Level) =
+when not defined(emscripten):
+  import pixie
+  proc debug*(self: Level) =
 
-  var ef = open("events.txt", fmWrite)
+    var ef = open("events.txt", fmWrite)
 
-  for y, row in self.events.pairs:
-    for x, event in row:
-      if event.eventId == None: continue
-      var paramTable = newSeq[tuple[name: string, value: int]](jcsEvents[event.eventId].params.len)
-      let params = event.params()
-      for j, param in jcsEvents[event.eventId].params:
-        paramTable[j] = (name: param.name, value: params[j])
-      if event.eventId == Generator:
-        let genEventId = cast[EventId](params[0])
-        ef.writeLine $genEventId, ": " & jcsEvents[genEventId].name, "* (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
-      else:
-        ef.writeLine $event.eventId & ": " & jcsEvents[event.eventId].name & " (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
+    for y, row in self.events.pairs:
+      for x, event in row:
+        if event.eventId == None: continue
+        var paramTable = newSeq[tuple[name: string, value: int]](jcsEvents[event.eventId].params.len)
+        let params = event.params()
+        for j, param in jcsEvents[event.eventId].params:
+          paramTable[j] = (name: param.name, value: params[j])
+        if event.eventId == Generator:
+          let genEventId = cast[EventId](params[0])
+          ef.writeLine $genEventId, ": " & jcsEvents[genEventId].name, "* (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
+        else:
+          ef.writeLine $event.eventId & ": " & jcsEvents[event.eventId].name & " (" & $(x+1) & ", " & $(y+1) & ") " & $paramTable & " " & $event & " 0b" & cast[uint32](event).BiggestInt.toBin(32)
 
-  echo "saving"
-  ef.close()
+    echo "saving"
+    ef.close()
 
-  echo "loading tileset"
-  var tileset = Tileset()
-  doAssert tileset.load(self.tileset)
+    echo "loading tileset"
+    var tileset = Tileset()
+    doAssert tileset.load(self.tileset)
 
-  if self.anims.len > 0:
-    var highestFrame = 0
-    for anim in self.anims:
-      if anim.frames.len > highestFrame:
-        highestFrame = anim.frames.len
-    if highestFrame > 0:
-      echo "drawing anims"
-      var ima = newImage(32 * highestFrame.int,  32 * self.anims.len)
-      for i, anim in self.anims:
-        for j, frame in anim.frames:
-          if frame.tileId == 0 or frame.tileId >= self.animOffset: continue
-          let tileOffset = tileset.tileOffsets[frame.tileId].image
-          let tilesetTile = tileset.tileImage[tileOffset]
+    if self.anims.len > 0:
+      var highestFrame = 0
+      for anim in self.anims:
+        if anim.frames.len > highestFrame:
+          highestFrame = anim.frames.len
+      if highestFrame > 0:
+        echo "drawing anims"
+        var ima = newImage(32 * highestFrame.int,  32 * self.anims.len)
+        for i, anim in self.anims:
+          for j, frame in anim.frames:
+            if frame.tileId == 0 or frame.tileId >= self.animOffset: continue
+            let tilesetTile = tileset.tiles[frame.tileId]
+            for k in 0..<32*32:
+              if not tilesetTile[k].transMask: continue
+              let index = tilesetTile[k].color
+              let color = tileset.palette[index]
+              let x = j * 32 + (k mod 32)
+              let y = i * 32 + (k div 32)
+              ima[x, y] = ColorRGB(
+                r: color[0],
+                g: color[1],
+                b: color[2]
+              )
+
+        echo "saving"
+        ima.writeFile("anims.png")
+
+    echo "drawing dictionary"
+    let dictColumns = 16
+    var im = newImage(4*32*dictColumns,  32 * ((self.dictionary.len - 1) div dictColumns + 1))
+    for i, word in self.dictionary.pairs:
+      for j, rawtile in word:
+        if rawtile == 0: continue
+        let tile = self.parseTile(rawtile)
+        if tile.tileId == 0 or tile.tileId >= self.animOffset: continue
+        let tilesetTile = tileset.tiles[tile.tileId]
+        for k in 0..<32*32:
+          if not tilesetTile[k].transMask: continue
+          let index = tilesetTile[k].color
+          let color = tileset.palette[index]
+          let x = (j + (i mod dictColumns) * 4) * 32 + (k mod 32)
+          let y = (i div dictColumns) * 32 + (k div 32)
+          im[x, y] = ColorRGB(
+            r: color[0],
+            g: color[1],
+            b: color[2]
+          )
+    echo "saving"
+    im.writeFile("dictionary.png")
+
+    for i, layer in self.layers.pairs:
+      if not layer.haveAnyTiles: continue
+      echo "drawing layer " & $i
+      var im2 = newImage(32 * (layer.width.int),  int 32 * layer.height.int)
+      for j, wordId in layer.tileCache:
+        if wordId == 0: continue
+        let word = self.dictionary[wordId]
+        for t, rawtile in word.pairs:
+          if rawtile == 0: continue
+          let tile = self.parseTile(rawtile)
+          if ((j * 4 + t) mod layer.realWidth.int) >= layer.width.int: continue
+          let tileId = if not tile.animated:
+            tile.tileId
+          else:
+            self.calculateAnimTile(tile.tileId).tileId
+          if tileId == 0: continue
+          let tilesetTile = tileset.tiles[tileId]
           for k in 0..<1024:
-            let x = j * 32 + (k mod 32)
-            let y = i * 32 + (k div 32)
-            let index = tilesetTile[k]
-            if index == 0: continue
+            if not tilesetTile[k].transMask: continue
+            let index = tilesetTile[k].color
             let color = tileset.palette[index]
-            ima[x, y] = ColorRGB(
+            let x = ((j * 4 + t) mod layer.realWidth.int) * 32 + (k mod 32)
+            let y = ((j * 4 + t) div layer.realWidth.int) * 32 + (k div 32)
+            im2[x, y] = ColorRGB(
               r: color[0],
               g: color[1],
               b: color[2]
             )
+      echo "saving 1"
+      im2.writeFile("layer-" & $i & "-tilecache.png")
 
-      echo "saving"
-      ima.writeFile("anims.png")
+      im2 = newImage(32 * (layer.width.int),  int 32 * layer.height.int)
+      for y, row in layer.map:
+        for x, tile in row:
+          let tileId = if not tile.animated:
+            tile.tileId
+          else:
+            self.calculateAnimTile(tile.tileId).tileId
+          if tileId == 0: continue
+          let tilesetTile = tileset.tiles[tileId]
+          for k in 0..<1024:
+            if tilesetTile[k].transMask: continue
+            let index = tilesetTile[k].color
+            let color = tileset.palette[index]
+            let px = x * 32 + (k mod 32)
+            let py = y * 32 + (k div 32)
+            im2[px, py] = ColorRGB(
+              r: color[0],
+              g: color[1],
+              b: color[2]
+            )
+      echo "saving 2"
+      im2.writeFile("layer-" & $i & "-map.png")
 
-  echo "drawing dictionary"
-  let dictColumns = 16
-  var im = newImage(4*32*dictColumns,  32 * ((self.dictionary.len - 1) div dictColumns + 1))
-  for i, word in self.dictionary.pairs:
-    for j, rawtile in word:
-      if rawtile == 0: continue
-      let tile = self.parseTile(rawtile)
-      if tile.tileId == 0 or tile.tileId >= self.animOffset: continue
-      let tileOffset = tileset.tileOffsets[tile.tileId].image
-      let tilesetTile = tileset.tileImage[tileOffset]
-      for k in 0..<1024:
-        let x = (j + (i mod dictColumns) * 4) * 32 + (k mod 32)
-        let y = (i div dictColumns) * 32 + (k div 32)
-        let index = tilesetTile[k]
-        if index == 0: continue
-        let color = tileset.palette[index]
-        # if color == 0: continue
-        im[x, y] = ColorRGB(
-          r: color[0],
-          g: color[1],
-          b: color[2]
-        )
-  echo "saving"
-  im.writeFile("dictionary.png")
+  proc test*() =
+    echo "loading events"
+    loadJcsIni("JCS.ini")
 
-  for i, layer in self.layers.pairs:
-    if not layer.haveAnyTiles: continue
-    echo "drawing layer " & $i
-    var im2 = newImage(32 * (layer.width.int),  int 32 * layer.height.int)
-    for j, wordId in layer.tileCache:
-      if wordId == 0: continue
-      let word = self.dictionary[wordId]
-      for t, rawtile in word.pairs:
-        if rawtile == 0: continue
-        let tile = self.parseTile(rawtile)
-        if ((j * 4 + t) mod layer.realWidth.int) >= layer.width.int: continue
-        let tileId = if not tile.animated:
-          tile.tileId
-        else:
-          self.calculateAnimTile(tile.tileId).tileId
-        let tileOffset = tileset.tileOffsets[tileId].image
-        let tilesetTile = tileset.tileImage[tileOffset]
-        for k in 0..<1024:
-          let x = ((j * 4 + t) mod layer.realWidth.int) * 32 + (k mod 32)
-          let y = ((j * 4 + t) div layer.realWidth.int) * 32 + (k div 32)
-          let index = tilesetTile[k]
-          if index == 0: continue
-          let color = tileset.palette[index]
-          im2[x, y] = ColorRGB(
-            r: color[0],
-            g: color[1],
-            b: color[2]
-          )
-    echo "saving 1"
-    im2.writeFile("layer-" & $i & "-tilecache.png")
+    echo "loading JCS new level"
+    var jcsNewLevel = Level()
+    doAssert jcsNewLevel.load("Untitled.j2l")
+    jcsNewLevel.save("level_untitled_saved.j2l")
 
-    im2 = newImage(32 * (layer.width.int),  int 32 * layer.height.int)
-    for y, row in layer.map:
-      for x, tile in row:
-        let tileId = if not tile.animated:
-          tile.tileId
-        else:
-          self.calculateAnimTile(tile.tileId).tileId
-        let tileOffset = tileset.tileOffsets[tileId].image
-        let tilesetTile = tileset.tileImage[tileOffset]
-        for k in 0..<1024:
-          let px = x * 32 + (k mod 32)
-          let py = y * 32 + (k div 32)
-          let index = tilesetTile[k]
-          if index == 0: continue
-          let color = tileset.palette[index]
-          im2[px, py] = ColorRGB(
-            r: color[0],
-            g: color[1],
-            b: color[2]
-          )
-    echo "saving 2"
-    im2.writeFile("layer-" & $i & "-map.png")
+    echo "creating new level"
+    var newLevel = NewLevel
+    newLevel.setPassword("heya")
+    newLevel.teamTriggerState = BlueOff
+    newLevel.teamTriggerId = 1
+    newLevel.serverTriggerEnabled = true
+    newLevel.serverTriggerId = 2
+    newLevel.overtimeTriggerEnabled = true
+    newLevel.overtimeTriggerId = 3
+    newLevel.levelBottomMode = DeathPit
+    newLevel.save("level_new.j2l")
 
-proc test*() =
-  echo "loading events"
-  loadJcsIni("JCS.ini")
+    echo "loading created new level"
+    var level = Level()
+    doAssert level.load("level_new.j2l", "heya")
+    level.save("level_new_saved.j2l")
 
-  echo "loading JCS new level"
-  var jcsNewLevel = Level()
-  doAssert jcsNewLevel.load("Untitled.j2l")
-  jcsNewLevel.save("level_untitled_saved.j2l")
+    doAssert readFile("level_new.j2l") == readFile("level_new_saved.j2l")
 
-  echo "creating new level"
-  var newLevel = NewLevel
-  newLevel.setPassword("heya")
-  newLevel.teamTriggerState = BlueOff
-  newLevel.teamTriggerId = 1
-  newLevel.serverTriggerEnabled = true
-  newLevel.serverTriggerId = 2
-  newLevel.overtimeTriggerEnabled = true
-  newLevel.overtimeTriggerId = 3
-  newLevel.levelBottomMode = DeathPit
-  newLevel.save("level_new.j2l")
-
-  echo "loading created new level"
-  var level = Level()
-  doAssert level.load("level_new.j2l", "heya")
-  level.save("level_new_saved.j2l")
-
-  doAssert readFile("level_new.j2l") == readFile("level_new_saved.j2l")
-
-  echo "loading official level"
-  level = Level()
-  if level.load("Tube2.j2l", "heya"):
-    echo "saving level"
-    level.rebuildTileCache()
-    level.save("level_saved.j2l")
-    level.debug()
+    echo "loading official level"
+    level = Level()
+    if level.load("Tube2.j2l", "heya"):
+      echo "saving level"
+      level.rebuildTileCache()
+      level.save("level_saved.j2l")
+      level.debug()
