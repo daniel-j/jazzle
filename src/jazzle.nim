@@ -12,29 +12,39 @@ import ./jazzle/gui
 const
   screenWidth = 1280
   screenHeight = 720
-  levelFile = "assets/Tube2.j2l"
-  tileShaderFs = staticRead("jazzle/shaders/tile.fs")
+  levelFile = "Tube2.j2l"
+  shaderIndexedFs = staticRead("jazzle/shaders/indexed.fs")
+  shaderTileFs = staticRead("jazzle/shaders/tile.fs")
 
 type
   GrayAlpha {.packed.} = object
     gray: uint8
     alpha: uint8
 
+var resourcePath = "assets"
+
 var lastCurrentMonitor: int32 = 0
 var currentTileset: Tileset
 var currentLevel = NewLevel
 var paletteTexture: Texture2D
 var tilesetImage: Texture2D
-var tilesetIndex10Texture: Texture2D
+var tilesetMask: Texture2D
+var tilesetGrid: Texture2D
 var tilesetIndex64Texture: Texture2D
 var layerTextures: seq[Texture2D]
-var tilesetMapData: seq[uint16]
+var tilesetMapData: array[64*64, uint16]
+var animTiles: array[256, Tile]
 var animGrid: Texture2D
-var shader: Shader
-var paletteLoc: ShaderLocation
-var tilesetImageLoc: ShaderLocation
-var layerSizeLoc: ShaderLocation
-var tilesetMapLoc: ShaderLocation
+
+var shaderTile: Shader
+var shaderTilePaletteLoc: ShaderLocation
+var shaderTileTilesetImageLoc: ShaderLocation
+var shaderTileLayerSizeLoc: ShaderLocation
+var shaderTileTilesetMapLoc: ShaderLocation
+
+var shaderIndexed: Shader
+var shaderIndexedPaletteLoc: ShaderLocation
+
 var animsUpdated = true
 var mouseUpdated = true
 var lastMousePos = Vector2()
@@ -46,6 +56,7 @@ var scrollParallax = Vector2()
 var showParallaxLayers = true
 var showParallaxEvents = true
 var showParallaxGrid = true
+var showParallaxMask = false
 var parallaxCurrentLayer: int32 = SpriteLayerNum.int32
 const parallaxResolutions = [
   (-1, -1), # none
@@ -66,10 +77,16 @@ var parallaxResolutionOpened = false
 var scrollTilesetPos = Rectangle(x: 0, y: 20, width: 334, height: 1)
 var scrollTilesetView = Rectangle()
 var scrollTileset = Vector2()
+var showTilesetGrid = true
+var showTilesetMask = false
+var showTilesetEvents = false
 
 var scrollAnimPos = Rectangle(x: 0, y: 20, width: 334, height: 1)
 var scrollAnimView = Rectangle()
 var scrollAnim = Vector2()
+var showAnimGrid = true
+var showAnimMask = false
+var showAnimEvents = false
 
 type
   MainMenuValues = enum
@@ -103,39 +120,119 @@ var mainMenu = MainMenu(items: @[
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
 
-proc loadLevelData(filename: string) =
-  echo "trying to load file ", filename
-  if currentLevel.load(filename):
-    echo "loaded ", currentLevel.filename
-    layerTextures.setLen(8)
-    for i in 0 ..< 8:
-      let layer = currentLevel.layers[i].addr
-      var layerData = newSeq[uint16](layer.width * layer.height)
-      let realWidth = ((layer.realWidth + 3) div 4) * 4
-      if layer.haveAnyTiles:
-        for j, wordId in layer.tileCache.pairs:
-          if wordId == 0: continue
-          let word = currentLevel.dictionary[wordId]
-          for t, rawtile in word.pairs:
-            if rawtile == 0: continue
-            let tile = currentLevel.parseTile(rawtile)
-            if ((j * 4 + t) mod realWidth.int) >= layer.width.int: continue
-            var tileId = tile.tileId
-            if tile.animated: tileId += currentLevel.animOffset
-            tileId += tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
-            let x = ((j * 4 + t) mod realWidth.int)
-            let y = ((j * 4 + t) div realWidth.int)
-            let index = x + y * layer.width.int
-            layerData[index] = tileId
+proc loadTilesetData() =
+  const width = 64 * 32
+  const height = 64 * 32
+  var imageData = newSeq[GrayAlpha](width * height)
+  var maskData = newSeq[GrayAlpha](width * height)
+  let tileset10Height = (currentTileset.tiles.len + 9) div 10
 
-      layerTextures[i] = Texture2D(
-        id: rlgl.loadTexture(layerData[0].addr, layer.width.int32, layer.height.int32, UncompressedGrayAlpha.int32, 1),
-        width: layer.width.int32,
-        height: layer.height.int32,
-        mipmaps: 1,
-        format: UncompressedGrayAlpha
-      )
+  for i, tile in currentTileset.tiles:
+    if i == 0: continue
+    tilesetMapData[i] = uint16 i
+    let alpha = if currentLevel.tileTypes[i] == Translucent: 180'u8 else: 255'u8
+    for j in 0..<32*32:
+      let x = (i mod 64) * 32 + (j mod 32)
+      let y = (i div 64) * 32 + (j div 32)
+      let index = x + y * width
+      imageData[index].gray = tile[j].color
+      imageData[index].alpha = if tile[j].transMask: alpha else: 0'u8
+      maskData[index].gray = 0
+      maskData[index].alpha = if tile[j].mask: 255'u8 else: 0'u8
 
+  tilesetImage = Texture2D(
+    id: rlgl.loadTexture(imageData[0].addr, width.int32, height.int32, UncompressedGrayAlpha.int32, 1),
+    width: width.int32,
+    height: height.int32,
+    mipmaps: 1,
+    format: UncompressedGrayAlpha
+  )
+  tilesetImage.setTextureFilter(Point)
+  tilesetImage.setTextureWrap(Clamp)
+  tilesetMask = Texture2D(
+    id: rlgl.loadTexture(maskData[0].addr, width.int32, height.int32, UncompressedGrayAlpha.int32, 1),
+    width: width.int32,
+    height: height.int32,
+    mipmaps: 1,
+    format: UncompressedGrayAlpha
+  )
+  tilesetMask.setTextureFilter(Point)
+  tilesetMask.setTextureWrap(Clamp)
+  imageData.reset()
+  maskData.reset()
+
+  tilesetGrid = Texture2D(
+    id: rlgl.loadTexture(tilesetMapData[0].addr, 10, tileset10Height.int32, UncompressedGrayAlpha.int32, 1),
+    width: 10,
+    height: tileset10Height.int32,
+    mipmaps: 1,
+    format: UncompressedGrayAlpha
+  )
+  tilesetGrid.setTextureFilter(Point)
+  tilesetGrid.setTextureWrap(Clamp)
+
+  tilesetIndex64Texture = Texture2D(
+    id: rlgl.loadTexture(tilesetMapData[0].addr, 64, 64, UncompressedGrayAlpha.int32, 1),
+    width: 64,
+    height: 64,
+    mipmaps: 1,
+    format: UncompressedGrayAlpha
+  )
+  tilesetIndex64Texture.setTextureFilter(Point)
+  tilesetIndex64Texture.setTextureWrap(Clamp)
+
+  paletteTexture = Texture2D(
+    id: rlgl.loadTexture(currentTileset.palette[0].addr, 256, 1, UncompressedR8g8b8a8.int32, 1),
+    width: 256.int32,
+    height: 1.int32,
+    mipmaps: 1,
+    format: UncompressedR8g8b8a8
+  )
+  paletteTexture.setTextureFilter(Point)
+  paletteTexture.setTextureWrap(Clamp)
+
+  # shaderTile.setShaderValueTexture(shaderTileTilesetImageLoc, tilesetImage)
+  # shaderTile.setShaderValueTexture(shaderTileTilesetMapLoc, tilesetIndex64Texture)
+  # shaderTile.setShaderValueTexture(shaderTilePaletteLoc, paletteTexture)
+
+  # shaderIndexed.setShaderValueTexture(shaderIndexedPaletteLoc, paletteTexture)
+
+proc loadTilesetFilename(filename: string) =
+  if currentTileset.load(filename):
+    currentTileset.cleanup() # clears tileoffset and data buffers, not used anymore
+    loadTilesetData()
+
+proc loadLevelData() =
+  layerTextures.setLen(8)
+  for i in 0 ..< 8:
+    let layer = currentLevel.layers[i].addr
+    var layerData = newSeq[uint16](layer.width * layer.height)
+    let realWidth = ((layer.realWidth + 3) div 4) * 4
+    if layer.haveAnyTiles:
+      for j, wordId in layer.tileCache.pairs:
+        if wordId == 0: continue
+        let word = currentLevel.dictionary[wordId]
+        for t, rawtile in word.pairs:
+          if rawtile == 0: continue
+          let tile = currentLevel.parseTile(rawtile)
+          if ((j * 4 + t) mod realWidth.int) >= layer.width.int: continue
+          var tileId = tile.tileId
+          if tile.animated: tileId += currentLevel.animOffset
+          tileId += tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
+          let x = ((j * 4 + t) mod realWidth.int)
+          let y = ((j * 4 + t) div realWidth.int)
+          let index = x + y * layer.width.int
+          layerData[index] = tileId
+
+    layerTextures[i] = Texture2D(
+      id: rlgl.loadTexture(layerData[0].addr, layer.width.int32, layer.height.int32, UncompressedGrayAlpha.int32, 1),
+      width: layer.width.int32,
+      height: layer.height.int32,
+      mipmaps: 1,
+      format: UncompressedGrayAlpha
+    )
+
+  if currentLevel.anims.len > 0:
     var animGridData = newSeq[uint16](currentLevel.anims.len)
     for i in 0 ..< currentLevel.anims.len:
       let tileId = currentLevel.animOffset.int + i
@@ -149,77 +246,37 @@ proc loadLevelData(filename: string) =
       format: UncompressedGrayAlpha
     )
     animGridData.reset()
-    animsUpdated = true
+  else:
+    animGrid = Texture2D(
+      id: rlgl.loadTexture(nil, 0, 0, UncompressedGrayAlpha.int32, 1),
+      width: 0,
+      height: 0,
+      mipmaps: 1,
+      format: UncompressedGrayAlpha
+    )
+  animsUpdated = true
 
-    scrollParallax.x = -currentLevel.lastHorizontalOffset.float
-    scrollParallax.y = -currentLevel.lastVerticalOffset.float
+  scrollParallax.x = -currentLevel.lastHorizontalOffset.float
+  scrollParallax.y = -currentLevel.lastVerticalOffset.float
 
-    currentTileset = Tileset()
-    if currentTileset.load("assets/" & currentLevel.tileset):
-      const format = UncompressedGrayAlpha
-      const width = 64 * 32
-      const height = 64 * 32
-      var imageData = newSeq[GrayAlpha](width * height)
-      let tileset10Height = (currentTileset.tiles.len + 9) div 10
-      tilesetMapData.setLen(max(10 * tileset10Height, 64 * 64))
+  let tilesetFilename = lastPathPart(currentLevel.tileset)
+  if tilesetFilename == "":
+    currentTileset = NoTileset
+    loadTilesetData()
+  else:
+    loadTilesetFilename(resourcePath / tilesetFilename)
 
-      for i, tile in currentTileset.tiles:
-        if i == 0: continue
-        tilesetMapData[i] = uint16 i
-        let alpha = if currentLevel.tileTypes[i] == Translucent: 180'u8 else: 255'u8
-        for j in 0..<32*32:
-          let x = (i mod 64) * 32 + (j mod 32)
-          let y = (i div 64) * 32 + (j div 32)
-          let index = x + y * width
-          imageData[index].gray = tile[j].color
-          imageData[index].alpha = if tile[j].transMask: alpha else: 0'u8
-
-      tilesetImage = Texture2D(
-        id: rlgl.loadTexture(imageData[0].addr, width.int32, height.int32, format.int32, 1),
-        width: width.int32,
-        height: height.int32,
-        mipmaps: 1,
-        format: format
-      )
-      tilesetImage.setTextureFilter(Point)
-      tilesetImage.setTextureWrap(Clamp)
-      imageData.reset()
-
-      tilesetIndex10Texture = Texture2D(
-        id: rlgl.loadTexture(tilesetMapData[0].addr, 10, tileset10Height.int32, UncompressedGrayAlpha.int32, 1),
-        width: 10,
-        height: tileset10Height.int32,
-        mipmaps: 1,
-        format: UncompressedGrayAlpha
-      )
-      tilesetIndex10Texture.setTextureFilter(Point)
-      tilesetIndex10Texture.setTextureWrap(Clamp)
-
-      tilesetIndex64Texture = Texture2D(
-        id: rlgl.loadTexture(tilesetMapData[0].addr, 64, 64, UncompressedGrayAlpha.int32, 1),
-        width: 64,
-        height: 64,
-        mipmaps: 1,
-        format: UncompressedGrayAlpha
-      )
-      tilesetIndex64Texture.setTextureFilter(Point)
-      tilesetIndex64Texture.setTextureWrap(Clamp)
-
-      paletteTexture = Texture2D(
-        id: rlgl.loadTexture(currentTileset.palette[0].addr, 256, 1, UncompressedR8g8b8a8.int32, 1),
-        width: 256.int32,
-        height: 1.int32,
-        mipmaps: 1,
-        format: UncompressedR8g8b8a8
-      )
-      paletteTexture.setTextureFilter(Point)
-      paletteTexture.setTextureWrap(Clamp)
-
-      shader.setShaderValueTexture(paletteLoc, paletteTexture)
-      shader.setShaderValueTexture(tilesetImageLoc, tilesetImage)
-      shader.setShaderValueTexture(tilesetMapLoc, tilesetIndex64Texture)
+proc loadLevelFilename(filename: string) =
+  echo "trying to load file ", filename
+  if currentLevel.load(filename):
+    echo "loaded ", currentLevel.filename
+    loadLevelData()
   else:
     echo "couldnt load level!"
+
+proc createNewLevel() =
+  currentLevel = NewLevel
+  loadLevelData()
 
 when defined(emscripten):
   when defined(cpp):
@@ -237,7 +294,7 @@ when defined(emscripten):
     copyMem(str[0].addr, data, str.len)
     createDir("/uploads")
     writeFile("/uploads/" & $name, str)
-    loadLevelData("/uploads/" & $name)
+    loadLevelFilename("/uploads/" & $name)
 
   proc saveFile() =
     echo currentLevel.filename
@@ -294,7 +351,7 @@ proc drawTiles(texture: Texture2D; position: Vector2; viewRect: Rectangle; tileW
     source.y = max(0, source.y)
     source.height = (bottom - top) / 32
 
-  shader.setShaderValue(layerSizeLoc, Vector2(x: width, y: height))
+  shaderTile.setShaderValue(shaderTileLayerSizeLoc, Vector2(x: width, y: height))
 
   rlgl.setTexture(texture.id)
   rlgl.drawMode(Quads):
@@ -461,6 +518,7 @@ proc update() =
     let offset = currentLevel.animOffset.int
     for i, anim in currentLevel.anims:
       let tile = currentLevel.calculateAnimTile(i.uint16)
+      animTiles[i] = tile
       let tileId = tile.tileId + tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
       tilesetMapData[offset + i] = tileId
     rlgl.updateTexture(tilesetIndex64Texture.id, 0, 0, 64, 64, UncompressedGrayAlpha, tilesetMapData[0].addr)
@@ -471,7 +529,7 @@ proc draw() =
   beginDrawing()
   clearBackground(getColor(guiGetStyle(GuiControl.Default, BackgroundColor).uint32))
 
-  let tilesetRec = Rectangle(x: 0, y: 0, width: float32 tilesetIndex10Texture.width * 32, height: float32 tilesetIndex10Texture.height * 32)
+  let tilesetRec = Rectangle(x: 0, y: 0, width: float32 tilesetGrid.width * 32, height: float32 tilesetGrid.height * 32)
   let animRec = Rectangle(x: 0, y: 0, width: float32 animGrid.width * 32, height: float32 animGrid.height * 32)
 
   scrollAnimPos.height = 200
@@ -485,16 +543,80 @@ proc draw() =
   scrollPanel(scrollTilesetPos, "Tileset", tilesetRec, scrollTileset, scrollTilesetView)
   scissorMode(scrollTilesetView.x.int32, scrollTilesetView.y.int32, scrollTilesetView.width.int32, scrollTilesetView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-    grid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), "", 32*5, 5, mouseCell)
-    shaderMode(shader):
-      drawTiles(tilesetIndex10Texture, scrollTileset, scrollTilesetView)
+    if showTilesetGrid:
+      grid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), "", 32*5, 5, mouseCell)
+    shaderMode(shaderTile):
+      shaderTile.setShaderValueTexture(shaderTilePaletteLoc, paletteTexture)
+      shaderTile.setShaderValueTexture(shaderTileTilesetMapLoc, tilesetIndex64Texture)
+      if showTilesetMask:
+        shaderTile.setShaderValueTexture(shaderTileTilesetImageLoc, tilesetMask)
+      else:
+        shaderTile.setShaderValueTexture(shaderTileTilesetImageLoc, tilesetImage)
+      drawTiles(tilesetGrid, scrollTileset, scrollTilesetView)
+    # shaderMode(shaderIndexed):
+    #   for i, tile in currentTileset.tiles:
+    #     if i == 0: continue
+    #     let dest = Rectangle(
+    #       x: (i mod 10).float * 32 + scrollTilesetView.x + scrollTileset.x,
+    #       y: (i div 10).float * 32 + scrollTilesetView.y + scrollTileset.y,
+    #       width: 32, height: 32
+    #     )
+    #     if not checkCollisionRecs(dest, scrollTilesetView): continue
+    #     let src = Rectangle(
+    #       x: float (i mod 64) * 32,
+    #       y: float (i div 64) * 32,
+    #       width: 32, height: 32
+    #     )
+    #     drawTexture(tilesetImage, src, dest, Vector2(), 0, White)
+
+  enableTooltip()
+  setTooltip("Grid")
+  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 2*1, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(Grid), showTilesetGrid)
+  setTooltip("Collision mask")
+  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 20 - 2*2, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(BoxCircleMask), showTilesetMask)
+  setTooltip("Events")
+  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 20 - 20 - 2*3, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(PlayerJump), showTilesetEvents)
+  disableTooltip()
 
   scrollPanel(scrollAnimPos, "Animations", animRec, scrollAnim, scrollAnimView)
   scissorMode(scrollAnimView.x.int32, scrollAnimView.y.int32, scrollAnimView.width.int32, scrollAnimView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-    grid(Rectangle(x: scrollAnimView.x + scrollAnim.x, y: scrollAnimView.y + scrollAnim.y, width: animRec.width, height: animRec.height), "", 32*5, 5, mouseCell)
-    shaderMode(shader):
+    if showAnimGrid:
+      grid(Rectangle(x: scrollAnimView.x + scrollAnim.x, y: scrollAnimView.y + scrollAnim.y, width: animRec.width, height: animRec.height), "", 32*5, 5, mouseCell)
+    shaderMode(shaderTile):
+      shaderTile.setShaderValueTexture(shaderTilePaletteLoc, paletteTexture)
+      shaderTile.setShaderValueTexture(shaderTileTilesetMapLoc, tilesetIndex64Texture)
+      if showAnimMask:
+        shaderTile.setShaderValueTexture(shaderTileTilesetImageLoc, tilesetMask)
+      else:
+        shaderTile.setShaderValueTexture(shaderTileTilesetImageLoc, tilesetImage)
       drawTiles(animGrid, scrollAnim, scrollAnimView)
+    # shaderMode(shaderIndexed):
+    #   for i, anim in currentLevel.anims:
+    #     let dest = Rectangle(
+    #       x: (i mod 10).float * 32 + scrollAnimView.x + scrollAnim.x,
+    #       y: (i div 10).float * 32 + scrollAnimView.y + scrollAnim.y,
+    #       width: 32, height: 32
+    #     )
+    #     if not checkCollisionRecs(dest, scrollAnimView): continue
+    #     let tile = animTiles[i]
+    #     if tile.tileId == 0: continue
+    #     let src = Rectangle(
+    #       x: float (tile.tileId mod 64) * 32,
+    #       y: float (tile.tileId div 64) * 32,
+    #       width: if tile.hflipped: -32 else: 32,
+    #       height: if tile.vflipped: -32 else: 32
+    #     )
+    #     drawTexture(tilesetImage, src, dest, Vector2(), 0, White)
+
+  enableTooltip()
+  setTooltip("Grid")
+  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 2*1, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(Grid), showAnimGrid)
+  setTooltip("Collision mask")
+  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 20 - 2*2, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(BoxCircleMask), showAnimMask)
+  setTooltip("Events")
+  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 20 - 20 - 2*3, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(PlayerJump), showAnimEvents)
+  disableTooltip()
 
   scrollPanel(scrollParallaxPos, "Parallax View", scrollParallaxContent, scrollParallax, scrollParallaxView)
   let mousePos = getMousePosition()
@@ -514,13 +636,19 @@ proc draw() =
   scissorMode(scrollParallaxView.x.int32, scrollParallaxView.y.int32, scrollParallaxView.width.int32, scrollParallaxView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
     for i in countdown(currentLevel.layers.len - 1, 0):
-      if not showParallaxLayers and parallaxCurrentLayer != i:
+      if (not showParallaxLayers and parallaxCurrentLayer != i) or (showParallaxMask and showParallaxLayers and i != SpriteLayerNum):
         continue
 
       let layer = currentLevel.layers[i].addr
       let offset = calculateParallaxLayerOffset(viewSize, alignment, i)
 
-      shaderMode(shader):
+      shaderMode(shaderTile):
+        shaderTile.setShaderValueTexture(shaderTilePaletteLoc, paletteTexture)
+        shaderTile.setShaderValueTexture(shaderTileTilesetMapLoc, tilesetIndex64Texture)
+        if showParallaxMask:
+          shaderTile.setShaderValueTexture(shaderTileTilesetImageLoc, tilesetMask)
+        else:
+          shaderTile.setShaderValueTexture(shaderTileTilesetImageLoc, tilesetImage)
         drawTiles(layerTextures[i], offset, scrollParallaxView, layer.properties.tileWidth, layer.properties.tileHeight)
 
     if showParallaxGrid:
@@ -545,20 +673,32 @@ proc draw() =
       height: viewSize.y + 2
     ), 1, White)
 
-  if dropdownBox(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 75 - 2, y: scrollParallaxPos.y + 2, width: 75, height: 20), parallaxResolutionsStr, parallaxResolutionSelection, parallaxResolutionOpened):
+  if dropdownBox(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 80 - 2, y: scrollParallaxPos.y + 2, width: 80, height: 20), parallaxResolutionsStr, parallaxResolutionSelection, parallaxResolutionOpened):
     parallaxResolutionOpened = not parallaxResolutionOpened
 
-  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 60 - 75 - 2*2, y: scrollParallaxPos.y + 2, width: 60, height: 20), "Events", showParallaxEvents)
+  enableTooltip()
+  setTooltip("Grid")
+  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 80 - 2*3, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(Grid), showParallaxGrid)
+  setTooltip("Collision mask")
+  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 20 - 80 - 2*4, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(BoxCircleMask), showParallaxMask)
+  setTooltip("Events")
+  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 20 - 20 - 80 - 2*5, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(PlayerJump), showParallaxEvents)
+  setTooltip("Parallax layers")
+  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 20 - 20 - 20 - 80 - 2*6, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(LayersIso), showParallaxLayers)
+  disableTooltip()
 
-  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 60 - 75 - 2*4, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(LayersIso), showParallaxLayers)
+  toggleGroup(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 8*(18+2) - 20 - 20 - 20 - 20 - 80 - 2*8, y: scrollParallaxPos.y + 2, width: 18, height: 20), "1;2;3;4;5;6;7;8", parallaxCurrentLayer)
 
-  toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 20 - 60 - 75 - 2*5, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(Grid), showParallaxGrid)
-
-  toggleGroup(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 8*(18+2) - 20 - 20 - 60 - 75 - 2*7, y: scrollParallaxPos.y + 2, width: 18, height: 20), "1;2;3;4;5;6;7;8", parallaxCurrentLayer)
+  # var i = 0
+  # for icon in GuiIconName:
+  #   let x = (i mod 16) + 1
+  #   let y = (i div 16) + 1
+  #   drawIcon(icon, int32 x * 32, int32 y * 32, 2, White)
+  #   inc(i)
 
   case showMenu(mainMenu, 20):
   of MenuNone: discard
-  of MenuFileNew: discard
+  of MenuFileNew: createNewLevel()
   of MenuFileOpen: openFilePicker()
   of MenuLevelProperties: discard
   of MenuFileSave: saveFile()
@@ -598,11 +738,14 @@ proc main =
 
   echo rlgl.getVersion()
 
-  shader = loadShaderFromMemory("", shaderPrefix & tileShaderFs)
-  paletteLoc = shader.getShaderLocation("texture1")
-  tilesetImageLoc = shader.getShaderLocation("texture2")
-  tilesetMapLoc = shader.getShaderLocation("texture3")
-  layerSizeLoc = shader.getShaderLocation("layerSize")
+  shaderTile = loadShaderFromMemory("", shaderPrefix & shaderTileFs)
+  shaderTilePaletteLoc = shaderTile.getShaderLocation("texture1")
+  shaderTileTilesetImageLoc = shaderTile.getShaderLocation("texture2")
+  shaderTileTilesetMapLoc = shaderTile.getShaderLocation("texture3")
+  shaderTileLayerSizeLoc = shaderTile.getShaderLocation("layerSize")
+
+  shaderIndexed = loadShaderFromMemory("", shaderPrefix & shaderIndexedFs)
+  shaderIndexedPaletteLoc = shaderIndexed.getShaderLocation("texture1")
 
   block:
     beginDrawing()
@@ -611,7 +754,7 @@ proc main =
     drawTexture(icon, getRenderWidth() div 2 - icon.width div 2, getRenderHeight() div 2 - icon.height + 30, White)
     endDrawing()
 
-  loadLevelData(levelFile)
+  loadLevelFilename(resourcePath / levelFile)
 
   # guiLoadStyleJungle()
 
@@ -623,7 +766,7 @@ proc main =
     # monitorChanged(lastCurrentMonitor)
 
     # Main game loop
-    while not windowShouldClose(): # Detect window close button or ESC key
+    while not windowShouldClose(): # Detect window close button
       # let currentMonitor = getCurrentMonitor()
       # if lastCurrentMonitor != currentMonitor:
       #   lastCurrentMonitor = currentMonitor

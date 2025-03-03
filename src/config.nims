@@ -1,6 +1,6 @@
 
 when defined(emscripten):
-  --define:release
+  #--define:release
   #--define:GraphicsApiOpenGlEs2
   --define:GraphicsApiOpenGlEs3
   --define:NaylibWebResources

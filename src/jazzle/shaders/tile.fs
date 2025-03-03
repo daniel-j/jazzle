@@ -8,6 +8,7 @@ uniform sampler2D texture1; // palette provided as a 256x1 texture, RGBA
 uniform sampler2D texture2; // tileset images 2048x2048, indexed
 uniform sampler2D texture3; // tileset mapping 64x64, contains map to static tileIds
 uniform vec2 layerSize;
+uniform vec4 colDiffuse;
 
 vec4 selection = vec4(0, 0, 0, 0);
 
@@ -49,5 +50,5 @@ void main() {
   }
   // fix alpha
   outColor.a = tilesetTile.a * fragColor.a;
-  finalColor = outColor;
+  finalColor = outColor * colDiffuse;
 }
