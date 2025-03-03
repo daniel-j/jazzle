@@ -80,6 +80,10 @@ var scrollTileset = Vector2()
 var showTilesetGrid = true
 var showTilesetMask = false
 var showTilesetEvents = false
+var tilesetDropdown: seq[(string, string)]
+var tilesetDropdownStr: string
+var tilesetDropdownSelection: int32 = 0
+var tilesetDropdownOpened = false
 
 var scrollAnimPos = Rectangle(x: 0, y: 20, width: 334, height: 1)
 var scrollAnimView = Rectangle()
@@ -119,6 +123,26 @@ var mainMenu = MainMenu(items: @[
 
 proc monitorChanged(monitor: int32) =
   setTargetFPS(getMonitorRefreshRate(monitor)) # Set our game to run at display framerate frames-per-second
+
+proc updateTilesetList() =
+  var currentTilesetFilename = ""
+  if tilesetDropdown.len < tilesetDropdownSelection:
+    currentTilesetFilename = tilesetDropdown[tilesetDropdownSelection][0]
+  tilesetDropdown = @[("", "<< No tileset >>")]
+  tilesetDropdownSelection = 0
+  var tileset: Tileset
+  for w in walkDir(resourcePath):
+    if w.kind != pcFile: continue
+    let path = w.path.splitFile()
+    if path.ext.toLower == ".j2t":
+      if tileset.load(w.path, infoOnly = true):
+        let f = w.path.lastPathPart
+        if f == currentTilesetFilename:
+          tilesetDropdownSelection = tilesetDropdown.len.int32
+        tilesetDropdown.add((f, tileset.title))
+  tilesetDropdownStr = tilesetDropdown.map(proc (res: (string, string)): string =
+    res[1].replace(";", "")
+  ).join(";")
 
 proc loadTilesetData() =
   const width = 64 * 32
@@ -201,6 +225,11 @@ proc loadTilesetFilename(filename: string) =
   if currentTileset.load(filename):
     currentTileset.cleanup() # clears tileoffset and data buffers, not used anymore
     loadTilesetData()
+    let tilesetFilename = filename.lastPathPart
+    for i, tileset in tilesetDropdown:
+      if tileset[0] == tilesetFilename:
+        tilesetDropdownSelection = i.int32
+        break
 
 proc loadLevelData() =
   layerTextures.setLen(8)
@@ -262,6 +291,7 @@ proc loadLevelData() =
   let tilesetFilename = lastPathPart(currentLevel.tileset)
   if tilesetFilename == "":
     currentTileset = NoTileset
+    tilesetDropdownSelection = 0
     loadTilesetData()
   else:
     loadTilesetFilename(resourcePath / tilesetFilename)
@@ -569,15 +599,6 @@ proc draw() =
     #     )
     #     drawTexture(tilesetImage, src, dest, Vector2(), 0, White)
 
-  enableTooltip()
-  setTooltip("Grid")
-  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 2*1, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(Grid), showTilesetGrid)
-  setTooltip("Collision mask")
-  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 20 - 2*2, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(BoxCircleMask), showTilesetMask)
-  setTooltip("Events")
-  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 20 - 20 - 2*3, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(PlayerJump), showTilesetEvents)
-  disableTooltip()
-
   scrollPanel(scrollAnimPos, "Animations", animRec, scrollAnim, scrollAnimView)
   scissorMode(scrollAnimView.x.int32, scrollAnimView.y.int32, scrollAnimView.width.int32, scrollAnimView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
@@ -608,15 +629,6 @@ proc draw() =
     #       height: if tile.vflipped: -32 else: 32
     #     )
     #     drawTexture(tilesetImage, src, dest, Vector2(), 0, White)
-
-  enableTooltip()
-  setTooltip("Grid")
-  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 2*1, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(Grid), showAnimGrid)
-  setTooltip("Collision mask")
-  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 20 - 2*2, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(BoxCircleMask), showAnimMask)
-  setTooltip("Events")
-  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 20 - 20 - 2*3, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(PlayerJump), showAnimEvents)
-  disableTooltip()
 
   scrollPanel(scrollParallaxPos, "Parallax View", scrollParallaxContent, scrollParallax, scrollParallaxView)
   let mousePos = getMousePosition()
@@ -673,10 +685,37 @@ proc draw() =
       height: viewSize.y + 2
     ), 1, White)
 
+  enableTooltip()
+  # tileset controls
+  setTooltip("Grid")
+  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 2*1, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(Grid), showTilesetGrid)
+  setTooltip("Collision mask")
+  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 20 - 2*2, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(BoxCircleMask), showTilesetMask)
+  setTooltip("Events")
+  toggle(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 20 - 20 - 20 - 2*3, y: scrollTilesetPos.y + 2, width: 20, height: 20), iconText(PlayerJump), showTilesetEvents)
+  setTooltip("")
+  let lastSelectedTileset = tilesetDropdownSelection
+  if dropdownBox(Rectangle(x: scrollTilesetPos.x + scrollTilesetPos.width - 200 - 20 - 20 - 20 - 2*5, y: scrollTilesetPos.y + 2, width: 200, height: 20), tilesetDropdownStr, tilesetDropdownSelection, tilesetDropdownOpened):
+    tilesetDropdownOpened = not tilesetDropdownOpened
+    if not tilesetDropdownOpened and tilesetDropdownSelection != lastSelectedTileset:
+      if tilesetDropdownSelection == 0:
+        currentTileset = NoTileset
+        loadTilesetData()
+      else:
+        loadTilesetFilename(resourcePath / tilesetDropdown[tilesetDropdownSelection][0])
+
+  # anim controls
+  setTooltip("Grid")
+  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 2*1, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(Grid), showAnimGrid)
+  setTooltip("Collision mask")
+  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 20 - 2*2, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(BoxCircleMask), showAnimMask)
+  setTooltip("Events")
+  toggle(Rectangle(x: scrollAnimPos.x + scrollAnimPos.width - 20 - 20 - 20 - 2*3, y: scrollAnimPos.y + 2, width: 20, height: 20), iconText(PlayerJump), showAnimEvents)
+
+  # parallax controls
+  setTooltip("")
   if dropdownBox(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 80 - 2, y: scrollParallaxPos.y + 2, width: 80, height: 20), parallaxResolutionsStr, parallaxResolutionSelection, parallaxResolutionOpened):
     parallaxResolutionOpened = not parallaxResolutionOpened
-
-  enableTooltip()
   setTooltip("Grid")
   toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 80 - 2*3, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(Grid), showParallaxGrid)
   setTooltip("Collision mask")
@@ -685,9 +724,10 @@ proc draw() =
   toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 20 - 20 - 80 - 2*5, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(PlayerJump), showParallaxEvents)
   setTooltip("Parallax layers")
   toggle(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 20 - 20 - 20 - 20 - 80 - 2*6, y: scrollParallaxPos.y + 2, width: 20, height: 20), iconText(LayersIso), showParallaxLayers)
+  setTooltip("")
+  toggleGroup(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 8*(18+2) - 20 - 20 - 20 - 20 - 80 - 2*8, y: scrollParallaxPos.y + 2, width: 18, height: 20), "1;2;3;4;5;6;7;8", parallaxCurrentLayer)
   disableTooltip()
 
-  toggleGroup(Rectangle(x: scrollParallaxPos.x + scrollParallaxPos.width - 8*(18+2) - 20 - 20 - 20 - 20 - 80 - 2*8, y: scrollParallaxPos.y + 2, width: 18, height: 20), "1;2;3;4;5;6;7;8", parallaxCurrentLayer)
 
   # var i = 0
   # for icon in GuiIconName:
@@ -753,6 +793,8 @@ proc main =
     let icon = loadTexture("assets/icon.png")
     drawTexture(icon, getRenderWidth() div 2 - icon.width div 2, getRenderHeight() div 2 - icon.height + 30, White)
     endDrawing()
+
+  updateTilesetList()
 
   loadLevelFilename(resourcePath / levelFile)
 

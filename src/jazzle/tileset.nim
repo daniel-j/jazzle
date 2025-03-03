@@ -399,7 +399,7 @@ proc updateFromTiles(self: var Tileset) =
       offsets.flipped = self.tileMask.len
       self.tileMask.add(flippedMask)
 
-proc load*(tileset: var Tileset; s: Stream): bool =
+proc load*(tileset: var Tileset; s: Stream; infoOnly: bool = false): bool =
   tileset.reset()
 
   let copyright = s.readStr(180)
@@ -428,6 +428,9 @@ proc load*(tileset: var Tileset; s: Stream): bool =
   if compressedLength + HeaderStructSize != tileset.fileSize:
     echo "filesize doesn't match!"
     return false
+
+  if infoOnly:
+    return true
 
   let compressedData = newStringStream(s.readStr(compressedLength.int))
   defer: compressedData.close()
@@ -458,11 +461,11 @@ proc load*(tileset: var Tileset; s: Stream): bool =
 
   return true
 
-proc load*(tileset: var Tileset; filename: string): bool =
+proc load*(tileset: var Tileset; filename: string; infoOnly: bool = false): bool =
   tileset.reset()
   let s = newFileStream(filename)
   defer: s.close()
-  return tileset.load(s)
+  return tileset.load(s, infoOnly)
 
 proc save*(tileset: var Tileset; s: Stream) =
   s.write(DataFileCopyright)
