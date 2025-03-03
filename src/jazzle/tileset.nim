@@ -64,6 +64,15 @@ proc maxTiles*(self: Tileset): uint32 =
   else:
     4096'u32
 
+const TilesetEmptyTile = static:
+  var t: TilesetTile
+  t
+const NoTileset* = Tileset(
+  title: "Untitled",
+  version: v1_24,
+  tiles: @[TilesetEmptyTile]
+)
+
 proc flipMask*(tileMask: TileMask): TileMask =
   for y in 0..<32:
     for x in 0..<32:
@@ -314,6 +323,13 @@ proc readMaskData(self: var Tileset; s: StringStream) =
 proc writeMaskData(s: Stream; tileset: Tileset) =
   for i in 0..<tileset.tileMask.len:
     s.writeMaskData(tileset.tileMask[i])
+
+proc cleanup*(self: var Tileset) =
+  self.tileOffsets.reset()
+  self.tileImage.reset()
+  self.tileTransMask.reset()
+  self.tileTransMaskJJ2.reset()
+  self.tileMask.reset()
 
 proc updateToTiles(self: var Tileset) =
   # uses tileOffsets, tileImage, tileMask... to write self.tiles
@@ -579,6 +595,8 @@ when not defined(emscripten):
     var tileset = Tileset()
     if tileset.load(filename):
       tileset.debug()
+      tileset.cleanup()
       tileset.save("tileset_saved.j2t")
       if tileset.load("tileset_saved.j2t"):
+        tileset.cleanup()
         tileset.save("tileset_saved_twice.j2t")
