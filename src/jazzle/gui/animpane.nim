@@ -3,7 +3,6 @@ import ../format/level
 import ../state
 import ../actions
 import ../shaders
-import ./tiles
 import ./events
 
 var animGrid: Texture2D
@@ -62,8 +61,16 @@ proc showAnimPane*(scrollAnimPos: Rectangle) =
   scrollPanel(scrollAnimPos, "Animations", animRec, scrollAnim, scrollAnimView)
   scissorMode(scrollAnimView.x.int32, scrollAnimView.y.int32, scrollAnimView.width.int32, scrollAnimView.height.int32):
     clearBackground(Color(r: 31, g: 24, b: 81, a: 255))
-    # if showAnimGrid:
-    #   grid(Rectangle(x: scrollAnimView.x + scrollAnim.x, y: scrollAnimView.y + scrollAnim.y, width: animRec.width, height: animRec.height), "", 32, 1, mouseCell)
+    for i, anim in globalState.currentLevel.anims:
+      let dest = Rectangle(
+        x: (i mod 10).float * 32 + scrollAnimView.x + scrollAnim.x,
+        y: (i div 10).float * 32 + scrollAnimView.y + scrollAnim.y,
+        width: 32, height: 32
+      )
+      if not checkCollisionRecs(scrollAnimView, dest): continue
+      drawRectangle(dest, Color(r: 72, g: 48, b: 168, a: 255))
+    if showAnimGrid:
+      grid(Rectangle(x: scrollAnimView.x + scrollAnim.x, y: scrollAnimView.y + scrollAnim.y, width: animRec.width, height: animRec.height), "", 32, 1, mouseCell)
     # shaderMode(shaderTile):
     #   shaderTile.setShaderValueTexture(shaderTilePaletteLoc, globalState.textures.palette)
     #   shaderTile.setShaderValueTexture(shaderTileTilesetMapLoc, globalState.textures.staticTileLUT)
@@ -72,6 +79,7 @@ proc showAnimPane*(scrollAnimPos: Rectangle) =
     #   else:
     #     shaderTile.setShaderValueTexture(shaderTileTilesetImageLoc, globalState.textures.tilesetImage)
     #   drawTiles(animGrid, scrollAnim, scrollAnimView)
+
     shaderMode(shaderIndexed):
       shaderIndexed.setShaderValueTexture(shaderIndexedPaletteLoc, globalState.textures.palette)
       let texture = if showAnimMask:
@@ -93,7 +101,6 @@ proc showAnimPane*(scrollAnimPos: Rectangle) =
           width: if tile.hflipped: -32 else: 32,
           height: if tile.vflipped: -32 else: 32
         )
-        drawRectangle(dest, Color(r: 72, g: 48, b: 168, a: 255))
         drawTexture(texture[], src, dest, Vector2(), 0, White)
     if showAnimEvents:
       eventStyle:
