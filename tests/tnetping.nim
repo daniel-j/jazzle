@@ -1,4 +1,4 @@
-import jazzle/net
+import jazzle/format/net
 
 let listserver = "list.jazzjackrabbit.com"
 

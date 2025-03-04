@@ -1,2 +1,2 @@
-import jazzle/tileset
+import jazzle/format/tileset
 tileset.test("TubeNite.j2t")

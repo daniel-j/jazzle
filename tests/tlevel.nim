@@ -1,2 +1,2 @@
-import jazzle/level
+import jazzle/format/level
 level.test()
