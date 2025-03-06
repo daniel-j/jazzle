@@ -1,8 +1,8 @@
-
-import raylib, rlgl, raygui
-import jazzle/format/level
 import std/math
 import std/os
+import raylib, rlgl, raygui
+
+import jazzle/format/level
 
 import ./jazzle/gui
 import ./jazzle/state
@@ -92,7 +92,7 @@ proc updateDrawFrame {.cdecl.} =
 
 proc main =
 
-  loadJcsIni("assets/JCS.ini")
+  jcsEvents = loadJcsIni("assets/JCS.ini")
 
   # initialize window
   const f = flags(WindowResizable, VsyncHint)
@@ -135,7 +135,6 @@ proc main =
 
   loadLevelFilename(globalState.resourcePath / levelFile)
 
-
   when defined(emscripten):
     setWindowSize(getScreenWidth(), getScreenHeight())
     emscriptenSetMainLoop(updateDrawFrame, 0, 1)
@@ -152,4 +151,5 @@ proc main =
 
       updateDrawFrame()
 
-main()
+when isMainModule:
+  main()

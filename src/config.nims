@@ -1,3 +1,4 @@
+--define:release
 
 when defined(emscripten):
   #--define:release
@@ -31,6 +32,7 @@ when defined(emscripten):
   #--passL:"-s MAXIMUM_MEMORY=500mb"
   --passL:"-s EXPORTED_FUNCTIONS=['_main','_malloc','_free']"
   --passL:"-s EXPORTED_RUNTIME_METHODS=['cwrap','stringToNewUTF8','UTF8ToString']"
+  --passL:"-s PTHREAD_POOL_SIZE=2"
   --passL:"-o build/index.html"
   --passL:"--shell-file tests/minshell.html"
   --passL:"--js-library tests/library.js"

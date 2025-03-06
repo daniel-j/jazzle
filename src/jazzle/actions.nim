@@ -105,24 +105,17 @@ proc loadTilesetFilename*(filename: string) =
     channelTilesetFilename.pub(filename.lastPathPart)
 
 proc loadLevelData*() =
-  for i in 0 ..< 8:
-    let layer = globalState.currentLevel.layers[i].addr
+  for i, layer in globalState.currentLevel.layers:
     var layerData = newSeq[uint16](layer.width * layer.height)
     let realWidth = ((layer.realWidth + 3) div 4) * 4
     if layer.haveAnyTiles:
-      for j, wordId in layer.tileCache.pairs:
-        if wordId == 0: continue
-        let word = globalState.currentLevel.dictionary[wordId]
-        for t, rawtile in word.pairs:
-          if rawtile == 0: continue
-          let tile = globalState.currentLevel.parseTile(rawtile)
-          if ((j * 4 + t) mod realWidth.int) >= layer.width.int: continue
+      for y in 0..<layer.height:
+        for x in 0..<layer.width:
+          let tile = layer.map[y][x]
           var tileId = tile.tileId
           if tile.animated: tileId += globalState.currentLevel.animOffset
           tileId += tile.hflipped.uint16 * 0x1000 + tile.vflipped.uint16 * 0x2000
-          let x = ((j * 4 + t) mod realWidth.int)
-          let y = ((j * 4 + t) div realWidth.int)
-          let index = x + y * layer.width.int
+          let index = x + y * layer.width
           layerData[index] = tileId
 
     globalState.textures.layerTextures[i] = Texture2D(
@@ -140,12 +133,19 @@ proc loadLevelData*() =
     channelTilesetFilename.pub("")
   else:
     loadTilesetFilename(globalState.resourcePath / tilesetFilename)
-  
+
   channelLevelFilename.pub(globalState.currentLevel.filename.lastPathPart)
+
+# import taskpools
 
 proc loadLevelFilename*(filename: string) =
   echo "trying to load file ", filename
-  if globalState.currentLevel.load(filename):
+  # var tp = Taskpool.new()
+  #let level = tp.spawn(loadLevel(filename, jcsEvents))
+  # discard tp.spawn tasker(filename)
+  # tp.syncAll()
+  # tp.shutdown()
+  if globalState.currentLevel.load(filename, jcsEvents):
     echo "loaded ", globalState.currentLevel.filename
     loadLevelData()
   else:

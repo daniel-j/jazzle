@@ -35,7 +35,7 @@ proc drawEvent*(bounds: Rectangle; offset: Vector2; evt: Event) =
   let t = globalState.time
   let isGenerator = evt.eventId == Generator
   var eventId = evt.eventId
-  let params = evt.params
+  let params = evt.getParams(jcsEvents)
   if isGenerator:
     eventId = params[0].EventId
 

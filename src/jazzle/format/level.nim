@@ -9,6 +9,8 @@ import std/sets
 import ./common
 import ./tileset
 
+import std/times
+
 export common
 
 const
@@ -556,13 +558,13 @@ proc parseIniEvent(value: string): EventInfo =
       let params = val.split(":")
       result.params.add((params[0].strip(), parseInt(params[1].strip())))
 
-proc loadJcsIni*(filename: string = "JCS.ini") =
+proc loadJcsIni*(filename: string = "JCS.ini"): array[EventId, EventInfo] =
   let jcsini = loadConfig(filename)
   for eventId in EventId:
-    jcsEvents[eventId] = parseIniEvent(jcsini.getSectionValue("Events", $eventId.ord))
+    result[eventId] = parseIniEvent(jcsini.getSectionValue("Events", $eventId.ord))
 
-proc params*(event: Event): seq[int] =
-  let jcsEvent = jcsEvents[event.eventId]
+proc getParams*(event: Event; eventInfo: array[EventId, EventInfo]): seq[int] =
+  let jcsEvent = eventInfo[event.eventId]
   var offset = 0
   result.setLen(jcsEvent.params.len)
   for i in 0..<jcsEvent.params.len:
@@ -574,9 +576,9 @@ proc params*(event: Event): seq[int] =
       result[i] =  result[i] - shift
     offset += size
 
-proc `params=`*(event: var Event; params: seq[int]) =
+proc setParams*(event: var Event; eventInfo: array[EventId, EventInfo]; params: seq[int]) =
   event.data = 0
-  let jcsEvent = jcsEvents[event.eventId]
+  let jcsEvent = eventInfo[event.eventId]
   var offset = 0
   for i in 0..<min(jcsEvent.params.len, params.len):
     let p = jcsEvent.params[i]
@@ -635,8 +637,9 @@ proc rebuildTileCache*(self: var Level; saveOverrides: bool = false) =
   if saveOverrides:
     self.tileCacheOverrides.reset()
   for i, layer in self.layers.mpairs:
-    layer.haveAnyTiles = self.checkIfLayerHaveTiles(i)
-    layer.realWidth = calculateRealWidth(layer.width, layer.properties.tileWidth)
+    if not saveOverrides:
+      layer.haveAnyTiles = self.checkIfLayerHaveTiles(i)
+      layer.realWidth = calculateRealWidth(layer.width, layer.properties.tileWidth)
 
     var tileCache: seq[WordId]
     if not layer.haveAnyTiles: continue
@@ -800,7 +803,6 @@ proc loadInfo(self: var Level, s: StringStream) =
   # if self.version == v_AGA:
   #   s.read(self.soundEffectPointer)
 
-
   for layer in self.layers.mitems: s.read(layer.properties)
   for layer in self.layers.mitems: s.read(layer.layerType) # unused
   for layer in self.layers.mitems: s.read(layer.haveAnyTiles)
@@ -824,23 +826,31 @@ proc loadInfo(self: var Level, s: StringStream) =
   doAssert staticTiles == self.maxTiles.uint16 - animCount
   doAssert staticTiles == self.animOffset
 
-  for i in 0..<staticTiles.int:
-    s.read(self.tilesetEvents[i])
+  let tilesetEventsSize = staticTiles.int * sizeof(Event)
+  doAssert tilesetEventsSize == s.readData(self.tilesetEvents[0].addr, tilesetEventsSize)
+  # for i in 0..<staticTiles.int:
+  #   s.read(self.tilesetEvents[i])
   for i in 0..<self.anims.len:
     s.read(self.anims[i].event)
 
-  for i in 0..<self.maxTiles:
-    self.isEachTileFlipped[i] = s.readBool()
+  let isEachTileFlippedSize = self.maxTiles * sizeof(bool)
+  doAssert isEachTileFlippedSize == s.readData(self.isEachTileFlipped[0].addr, isEachTileFlippedSize)
+  # for i in 0..<self.maxTiles:
+  #   self.isEachTileFlipped[i] = s.readBool()
 
-  for i in 0..<self.maxTiles:
-    let val = s.readUint8()
-    self.tileTypes[i] = case val:
-      of 1: Translucent
-      of 4: Caption
-      else: Default
+  let tileTypesSize = self.maxTiles * sizeof(TileType)
+  doAssert tileTypesSize == s.readData(self.tileTypes[0].addr, tileTypesSize)
+  # for i in 0..<self.maxTiles:
+  #   let val = s.readUint8()
+  #   self.tileTypes[i] = case val:
+  #     of 1: Translucent
+  #     of 4: Caption
+  #     else: Default
 
-  for i in 0..<self.maxTiles:
-    s.read(self.isEachTileUsed[i]) # unused?
+  let isEachTileUsedSize = self.maxTiles * sizeof(uint8)
+  doAssert isEachTileUsedSize == s.readData(self.isEachTileUsed[0].addr, isEachTileUsedSize)
+  # for i in 0..<self.maxTiles:
+  #   s.read(self.isEachTileUsed[i]) # unused?
 
   # if self.version == v_AGA:
   #   s.read(self.unknownAGA)
@@ -977,12 +987,14 @@ proc writeInfo(s: StringStream; level: var Level) =
   s.setPosition(15)
   s.write(bufferSize)
 
-proc loadEvents(self: var Level; s: StringStream) =
+proc loadEvents(self: var Level; s: StringStream; eventInfo: array[EventId, EventInfo]) =
   self.events.setLen(self.layers[SpriteLayerNum].height)
+  let eventRowSize = self.layers[SpriteLayerNum].width.int * sizeof(Event)
   for row in self.events.mitems:
     row.setLen(self.layers[SpriteLayerNum].width)
-    for event in row.mitems:
-      s.read(event)
+    doAssert eventRowSize == s.readData(row[0].addr, eventRowSize)
+    # for event in row.mitems:
+    #   s.read(event)
   doAssert s.atEnd()
   s.close()
 
@@ -1001,7 +1013,7 @@ proc loadEvents(self: var Level; s: StringStream) =
     let serverTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][1].addr
     let overtimeTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][2].addr
     if teamTrigEvent.eventId == TriggerZone:
-      let params = teamTrigEvent[].params()
+      let params = teamTrigEvent[].getParams(eventInfo)
       self.teamTriggerState = if params[1] == 0: BlueOff else: BlueOn
       self.teamTriggerId = params[0]
       teamTrigEvent[].reset()
@@ -1009,7 +1021,7 @@ proc loadEvents(self: var Level; s: StringStream) =
       self.teamTriggerState = Disabled
 
     if serverTrigEvent.eventId == TriggerZone:
-      let params = serverTrigEvent[].params()
+      let params = serverTrigEvent[].getParams(eventInfo)
       self.serverTriggerEnabled = true
       self.serverTriggerId = params[0]
       serverTrigEvent[].reset()
@@ -1017,14 +1029,14 @@ proc loadEvents(self: var Level; s: StringStream) =
       self.serverTriggerEnabled = false
 
     if overtimeTrigEvent.eventId == TriggerZone:
-      let params = overtimeTrigEvent[].params()
+      let params = overtimeTrigEvent[].getParams(eventInfo)
       self.overtimeTriggerEnabled = true
       self.overtimeTriggerId = params[0]
       overtimeTrigEvent[].reset()
     else:
       self.overtimeTriggerEnabled = false
 
-proc writeEvents(self: var Level): string =
+proc writeEvents(self: var Level; eventInfo: array[EventId, EventInfo]): string =
   if self.layers[SpriteLayerNum].width >= 4 and self.layers[SpriteLayerNum].height >= 2:
     let bottomRightEvent = self.events[self.layers[SpriteLayerNum].height - 1][self.layers[SpriteLayerNum].width - 1].addr
     if bottomRightEvent.eventId in [None, OneWay, MCE]:
@@ -1038,15 +1050,15 @@ proc writeEvents(self: var Level): string =
     let overtimeTrigEvent = self.events[self.layers[SpriteLayerNum].height - 1][2].addr
     if self.teamTriggerState != Disabled and teamTrigEvent.eventId in [None, TriggerZone]:
       teamTrigEvent[] = Event(eventId: TriggerZone)
-      teamTrigEvent[].params = @[self.teamTriggerId, if self.teamTriggerState == BlueOff: 0 else: 1]
+      teamTrigEvent[].setParams(eventInfo, @[self.teamTriggerId, if self.teamTriggerState == BlueOff: 0 else: 1])
 
     if self.serverTriggerEnabled and serverTrigEvent.eventId in [None, TriggerZone]:
       serverTrigEvent[] = Event(eventId: TriggerZone)
-      serverTrigEvent[].params = @[self.serverTriggerId]
+      serverTrigEvent[].setParams(eventInfo, @[self.serverTriggerId])
 
     if self.overtimeTriggerEnabled and overtimeTrigEvent.eventId in [None, TriggerZone]:
       overtimeTrigEvent[] = Event(eventId: TriggerZone)
-      overtimeTrigEvent[].params = @[self.overtimeTriggerId]
+      overtimeTrigEvent[].setParams(eventInfo, @[self.overtimeTriggerId])
 
   result = newString(self.layers[SpriteLayerNum].width.int * self.layers[SpriteLayerNum].height.int * sizeof(Event))
   var eventOffset = 0
@@ -1085,7 +1097,8 @@ proc writeWordMapData(s: Stream; level: Level) =
     for wordId in layer.tileCache:
       s.write(wordId)
 
-proc load*(self: var Level; s: Stream; password: string = ""): bool =
+proc load*(self: var Level; s: Stream; eventInfo: array[EventId, EventInfo]; password: string = ""): bool =
+  let st = getTime()
   self.reset()
 
   let copyright = s.readStr(180)
@@ -1123,6 +1136,8 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
     echo "filesize doesn't match!"
     return false
 
+  echo (getTime() - st, "header")
+
   let compressedData = newStringStream(s.readStr(compressedLength.int))
   defer: compressedData.close()
 
@@ -1138,6 +1153,7 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
     data = uncompress(data, dfZlib)
     doAssert data.len.uint32 == streamSizes[kind].unpackedSize
     sections[kind] = newStringStream(data)
+    echo (getTime() - st, kind)
 
   doAssert compressedData.atEnd()
 
@@ -1146,6 +1162,7 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   s.close()
 
   self.loadInfo(sections[LevelInfo])
+  echo (getTime() - st, "loadInfo")
 
   case self.securityEnvelope:
   of SecurityPassworded: echo "level passworded"
@@ -1153,21 +1170,29 @@ proc load*(self: var Level; s: Stream; password: string = ""): bool =
   of SecurityDisabled: echo "level unprotected"
   else: echo "unknown security envelope: " & self.securityEnvelope.toHex(); return false
 
-  self.loadEvents(sections[EventData])
+  self.loadEvents(sections[EventData], eventInfo)
+  echo (getTime() - st, "loadEvents")
   self.loadDictionary(sections[DictData])
+  echo (getTime() - st, "loadDict")
   self.loadWordMap(sections[WordMapData])
+  echo (getTime() - st, "loadWordMap")
 
   self.rebuildMap()
+  echo (getTime() - st, "rebuildMap")
   self.rebuildTileCache(true)
+  echo (getTime() - st, "rebuildTileCache")
 
   return true
 
-proc load*(self: var Level; filename: string; password: string = ""): bool =
+proc load*(self: var Level; filename: string; eventInfo: array[EventId, EventInfo]; password: string = ""): bool =
   self.reset()
   let s = newFileStream(filename)
   defer: s.close()
-  result = self.load(s, password)
+  result = self.load(s, eventInfo, password)
   self.filename = filename
+
+proc loadLevel*(filename: string; eventInfo: array[EventId, EventInfo]; password: string = ""): Level =
+  discard result.load(filename, eventInfo, password)
 
 proc save*(self: var Level; s: Stream) =
   s.write(DataFileCopyright)
@@ -1187,7 +1212,7 @@ proc save*(self: var Level; s: Stream) =
   streams[LevelInfo] = levelInfoStream.data
   levelInfoStream.close()
 
-  streams[EventData] = self.writeEvents()
+  streams[EventData] = self.writeEvents(jcsEvents)
 
   let dictDataStream = newStringStream("")
   dictDataStream.writeDictData(self)
@@ -1359,11 +1384,11 @@ when not defined(emscripten):
 
   proc test*() =
     echo "loading events"
-    loadJcsIni("JCS.ini")
+    jcsEvents = loadJcsIni("JCS.ini")
 
     echo "loading JCS new level"
     var jcsNewLevel = Level()
-    doAssert jcsNewLevel.load("Untitled.j2l")
+    doAssert jcsNewLevel.load("Untitled.j2l", jcsEvents)
     jcsNewLevel.save("level_untitled_saved.j2l")
 
     echo "creating new level"
@@ -1380,14 +1405,14 @@ when not defined(emscripten):
 
     echo "loading created new level"
     var level = Level()
-    doAssert level.load("level_new.j2l", "heya")
+    doAssert level.load("level_new.j2l", jcsEvents, "heya")
     level.save("level_new_saved.j2l")
 
     doAssert readFile("level_new.j2l") == readFile("level_new_saved.j2l")
 
     echo "loading official level"
     level = Level()
-    if level.load("Tube2.j2l", "heya"):
+    if level.load("Tube2.j2l", jcsEvents, "heya"):
       echo "saving level"
       level.rebuildTileCache()
       level.save("level_saved.j2l")
