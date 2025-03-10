@@ -1262,7 +1262,7 @@ when not defined(emscripten):
       for x, event in row:
         if event.eventId == None: continue
         var paramTable = newSeq[tuple[name: string, value: int]](jcsEvents[event.eventId].params.len)
-        let params = event.params()
+        let params = event.getParams(jcsEvents)
         for j, param in jcsEvents[event.eventId].params:
           paramTable[j] = (name: param.name, value: params[j])
         if event.eventId == Generator:
