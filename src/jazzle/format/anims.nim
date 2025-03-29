@@ -1,7 +1,7 @@
 import std/os
 import std/streams
 import std/strutils
-import std/strformat
+# import std/math
 import zippy
 import zippy/crc
 import ./common
@@ -267,8 +267,42 @@ proc loadAnim*(self: var AnimLib; setNum: int): bool =
 
   return true
 
+# proc lerp(a: float, b: float, f: float): float =
+#   return (a * (1.0 - f)) + (b * f)
+
+# proc resampleAudio(samples: var seq[int16]; fromSampleRate: int; toSampleRate: int): seq[int16] =
+#   let ratio = toSampleRate / fromSampleRate
+#   let newLength = int samples.len.float * ratio
+#   result.setLen(newLength)
+#   for i, samp in result.mpairs:
+#     let indexA = floor(i.float / ratio)
+#     let indexB = ceil((i + 1).float / ratio)
+#     if indexB.int >= samples.len:
+#       break
+#     let distance = indexB - indexA
+#     let position = ((i.float / ratio) - indexA) / distance
+#     samp = int16 lerp(samples[indexA.int].float, samples[indexB.int].float, position)
+
 proc toWav*(sample: Sample): string =
   let s = newStringStream()
+  var targetSampleRate = sample.sampleRate.int
+
+  var is16bit = Flag16bit in sample.flags
+  var bytesPerSample = 1 + int(is16bit)
+  let isStereo = FlagStereo in sample.flags
+  let channels = 1 + int(isStereo)
+
+  var samples16bit: seq[int16]
+  samples16bit.setLen(sample.samples.data.len div bytesPerSample)
+
+  for i, samp in samples16bit.mpairs:
+    if is16bit:
+      sample.samples.read(samp)
+    else:
+      samp = sample.samples.readUint8().int16 shl 8
+
+  is16bit = true
+  bytesPerSample = 1 + int(is16bit)
 
   s.write("RIFF")
   s.write(36 + sample.samples.data.len.uint32)
@@ -277,24 +311,24 @@ proc toWav*(sample: Sample): string =
   s.write("fmt ")
   s.write(16'u32)
   s.write(1'u16) # Audio format = PCM
-  s.write(1 + uint16(FlagStereo in sample.flags))
-  s.write(sample.sampleRate)
-  s.write(sample.sampleRate * (1 + uint32(Flag16bit in sample.flags)) * (1 + uint32(FlagStereo in sample.flags))) # BytesPerSec
-  s.write((1 + uint16(Flag16bit in sample.flags)) * (1 + uint16(FlagStereo in sample.flags))) # BytesPerBloc
-  s.write(8 * (1 + uint16(Flag16bit in sample.flags))) # BitsPerSample
+  s.write(uint16 channels)
+  s.write(uint32 targetSampleRate)
+  s.write(uint32 targetSampleRate * bytesPerSample * channels) # BytesPerSec
+  s.write(uint16 bytesPerSample * channels) # BytesPerBloc
+  s.write(uint16 bytesPerSample * 8) # BitsPerSample
 
   s.write("data")
-  s.write(sample.samples.data.len.uint32)
+  s.write(uint32 samples16bit.len * bytesPerSample)
 
-  if Flag16bit notin sample.flags:
-    for i, samp in sample.samples.data:
-      s.write(samp.uint8 + 0x80)
-  else:
-    s.write(sample.samples.data)
+  for samp in samples16bit:
+    s.write(samp)
 
   return s.data
 
 when not defined(emscripten):
+  import std/strformat
+  import std/osproc
+
   proc test*() =
     echo "loading Anims.j2a"
     var animLib = AnimLib()
@@ -308,5 +342,9 @@ when not defined(emscripten):
       for j in 0..<animLib.setList[i].sampleList.len:
         let sample = animLib.setList[i].sampleList[j].addr
         # echo sample[]
-        # let wavData = sample[].toWav()
-        # writeFile(&"sample_{i}_{j}.wav", wavData)
+        let wavData = sample[].toWav()
+        let filename = &"sample_{i}_{j}.wav"
+        let filenameOut = &"sample_{i}_{j}_resampled.wav"
+        writeFile(filename, wavData)
+        # resample to high quality wav!
+        assert 0 == execCmd(&"sox {filename} -b 16 {filenameOut} gain -2 rate -q 44100")
