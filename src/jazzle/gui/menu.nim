@@ -8,6 +8,8 @@ type
     width*: int
     items*: seq[Menu[T]]
 
+var isMainMenuActive* = false
+
 # Button control, returns true when clicked
 proc focusedGuiRect(bounds: Rectangle): bool =
   var state = guiGetState()
@@ -29,6 +31,7 @@ proc showMenu*[T](menu: var Menu[T]; h: int): T =
   var isClosed = false
   var isFocused = false
   var isOpen = -1
+  isMainMenuActive = false
   for m in 0..<menu.items.len:
     let item = menu.items[m].addr
     if item.uID != 0:
@@ -54,6 +57,7 @@ proc showMenu*[T](menu: var Menu[T]; h: int): T =
 
     # if it's open
     if item.uID != 0:
+      isMainMenuActive = true
       rect.width = item.width.float32
       # check if it's the one we had last time 
       if (m != isOpen) and (isOpen != -1):

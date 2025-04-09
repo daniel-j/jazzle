@@ -54,6 +54,9 @@ proc draw() =
   scrollParallaxPos.width = getRenderWidth().float - scrollParallaxPos.x
   scrollParallaxPos.height = getRenderHeight().float - scrollParallaxPos.y
 
+  if isMainMenuActive or tilesetDropdownOpened or parallaxResolutionOpened:
+    guiLock()
+
   showTilesetPane(scrollTilesetPos)
   showAnimPane(scrollAnimPos)
   showParallaxPane(scrollParallaxPos)
@@ -68,6 +71,8 @@ proc draw() =
   #   let y = (i div 16) + 1
   #   drawIcon(icon, int32 x * 32, int32 y * 32, 2, White)
   #   inc(i)
+
+  guiUnlock()
 
   case showMenu(mainMenu, 20):
   of MenuNone: discard
@@ -121,6 +126,8 @@ proc main =
   #guiSetStyle(GuiControl.Default, TextLineSpacing, cast[int32](0x00000018))
   guiSetStyle(GuiControl.Slider, TextColorPressed, cast[int32](0xd4d4d4ff))
   guiSetStyle(GuiControl.ProgressBar, TextColorPressed, cast[int32](0xd4d4d4ff))
+
+  guiSetStyle(GuiControl.Scrollbar, ArrowsVisible, 1)
 
   for i in 0..<10:
     beginDrawing()

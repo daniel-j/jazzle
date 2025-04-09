@@ -8,16 +8,17 @@ import ../state
 import ../actions
 import ./tiles
 import ./events
+import ./selection
 
 var scrollTilesetView = Rectangle()
 var scrollTileset = Vector2()
-var showTilesetGrid = true
+var showTilesetGrid = false
 var showTilesetMask = false
 var showTilesetEvents = true
 var tilesetDropdown: seq[(string, string)]
 var tilesetDropdownStr: string
 var tilesetDropdownSelection: int32 = 0
-var tilesetDropdownOpened = false
+var tilesetDropdownOpened* = false
 
 proc updateTilesetList*() =
   var currentTilesetFilename = ""
@@ -55,8 +56,6 @@ proc showTilesetPane*(scrollTilesetPos: Rectangle) =
   scrollPanel(scrollTilesetPos, "Tileset", tilesetRec, scrollTileset, scrollTilesetView)
   scissorMode(scrollTilesetView.x.int32, scrollTilesetView.y.int32, scrollTilesetView.width.int32, scrollTilesetView.height.int32):
     clearBackground(Color(r: 72, g: 48, b: 168, a: 255))
-    if showTilesetGrid:
-      grid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), "", 32*5, 5, mouseCell)
     shaderMode(shaderTile):
       shaderTile.setShaderValueTexture(shaderTilePaletteLoc, globalState.textures.palette)
       shaderTile.setShaderValueTexture(shaderTileTilesetMapLoc, globalState.textures.staticTileLUT)
@@ -83,6 +82,11 @@ proc showTilesetPane*(scrollTilesetPos: Rectangle) =
     if showTilesetEvents:
       eventStyle:
         drawEvents(scrollTilesetView, scrollTileset, 10, globalState.currentLevel.tilesetEvents)
+    if showTilesetGrid:
+      grid(Rectangle(x: scrollTilesetView.x + scrollTileset.x, y: scrollTilesetView.y + scrollTileset.y, width: tilesetRec.width, height: tilesetRec.height), "", 32*5, 5, mouseCell)
+
+    if not guiIsLocked():
+      drawSelection(scrollTilesetView, scrollTileset)
 
 proc showTilesetControls*(scrollTilesetPos: Rectangle) =
   enableTooltip()

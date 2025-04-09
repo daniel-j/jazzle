@@ -4,6 +4,7 @@ import std/sequtils
 import std/math
 import ./tiles
 import ./events
+import ./selection
 import ../format/level
 import ../state
 import ../actions
@@ -31,7 +32,7 @@ const parallaxResolutionsStr = parallaxResolutions.map(proc (res: (int, int)): s
     if res[0] == -1: "(none)" else: $res[0] & "x" & $res[1]
   ).join(";")
 var parallaxResolutionSelection: int32 = 0
-var parallaxResolutionOpened = false
+var parallaxResolutionOpened* = false
 
 channelLevelFilename.sub(proc (filename: string) =
   scrollParallax.x = -globalState.currentLevel.lastHorizontalOffset.float
@@ -107,8 +108,8 @@ proc showParallaxPane*(scrollParallaxPos: Rectangle) =
     if showParallaxGrid:
       grid(Rectangle(x: scrollParallaxView.x + currentLayerOffset.x, y: scrollParallaxView.y + currentLayerOffset.y, width: currentLayer.width.float * 32, height: currentLayer.height.float * 32), "", 32*4, 4, mouseCell)
 
-    let mousePosTile = Vector2(x: (mousePos.x - scrollParallaxView.x - currentLayerOffset.x) / 32, y: (mousePos.y - scrollParallaxView.y - currentLayerOffset.y) / 32)
-    drawRectangleLines(Rectangle(x: scrollParallaxView.x + currentLayerOffset.x + floor(mousePosTile.x) * 32, y: scrollParallaxView.y + currentLayerOffset.y + floor(mousePosTile.y) * 32, width: 32, height: 32), 1, Pink)
+    if not guiIsLocked():
+      drawSelection(scrollParallaxView, currentLayerOffset)
 
     # drawRectangleLines(Rectangle(
     #   x: scrollParallaxView.x + scrollParallaxView.width / 2 - viewSize.x / 2 - 1024,
