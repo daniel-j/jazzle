@@ -23,5 +23,5 @@ type
 var globalState* = State(
   resourcePath: "assets",
   currentTileset: NoTileset,
-  currentLevel: NewLevel
+  currentLevel: newLevel()
 )

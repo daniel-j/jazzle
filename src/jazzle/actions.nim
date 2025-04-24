@@ -152,7 +152,7 @@ proc loadLevelFilename*(filename: string) =
     echo "couldnt load level!"
 
 proc createNewLevel*() =
-  globalState.currentLevel = NewLevel
+  globalState.currentLevel = newLevel()
   loadLevelData()
 
 when defined(emscripten):

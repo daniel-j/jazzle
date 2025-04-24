@@ -706,7 +706,7 @@ proc rebuildTileCache*(self: var Level; saveOverrides: bool = false) =
   echo "dict ", (self.dictionary.len, dictionary.len, self.dictionary == dictionary)
   self.dictionary = dictionary
 
-const NewLevel* = static:
+proc newLevel*(): Level =
   var level = Level(
     title: "Untitled",
     version: v1_24,
@@ -1392,7 +1392,7 @@ when not defined(emscripten):
     jcsNewLevel.save("level_untitled_saved.j2l")
 
     echo "creating new level"
-    var newLevel = NewLevel
+    var newLevel = newLevel()
     newLevel.setPassword("heya")
     newLevel.teamTriggerState = BlueOff
     newLevel.teamTriggerId = 1
