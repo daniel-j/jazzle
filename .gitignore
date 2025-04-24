@@ -2,3 +2,5 @@
 /build
 /jazzle
 /wasmcache
+nimble.develop
+nimble.paths

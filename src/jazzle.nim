@@ -105,7 +105,7 @@ proc main =
   initWindow(screenWidth, screenHeight, "JazzLE")
   defer: closeWindow()
   setExitKey(KeyboardKey.Null)
-  setWindowMinSize(320, 240)
+  setWindowMinSize(700, 300)
   # maximizeWindow()
 
   guiSetStyle(GuiControl.Default, BorderColorNormal, cast[int32](0x898988ff))

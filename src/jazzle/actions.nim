@@ -3,6 +3,9 @@ import ./format/level, ./format/tileset
 import ./state
 import std/os
 
+when not defined(emscripten):
+  import ./gui/tinyfiledialogs
+
 type
   GrayAlpha {.packed.} = object
     gray: uint8
@@ -132,7 +135,8 @@ proc loadLevelData*() =
     loadTilesetData()
     channelTilesetFilename.pub("")
   else:
-    loadTilesetFilename(globalState.resourcePath / tilesetFilename)
+    if fileExists(globalState.resourcePath / tilesetFilename):
+      loadTilesetFilename(globalState.resourcePath / tilesetFilename)
 
   channelLevelFilename.pub(globalState.currentLevel.filename.lastPathPart)
 
@@ -186,7 +190,18 @@ else:
   {.pragma: EMSCRIPTEN_KEEPALIVE, cdecl, exportc.}
 
   proc openFilePicker*() =
-    discard
+    let openFilename = tinyfd_openFileDialogEx("Open Jazz2 Level", "", ["*.j2l".cstring], "Jazz2 Level")
+    if openFilename.isNil:
+      return
+    loadLevelFilename($openFilename)
+
+  proc openSavePicker*() =
+    let saveFilename = tinyfd_saveFileDialogEx("Save Jazz2 Level", "", ["*.j2l".cstring], "Jazz2 Level")
+    if saveFilename.isNil:
+      return
+    globalState.currentLevel.save($saveFilename)
+
 
   proc saveFile*() =
-    globalState.currentLevel.save("level_saved.j2l")
+    openSavePicker()
+    #globalState.currentLevel.save("level_saved.j2l")
